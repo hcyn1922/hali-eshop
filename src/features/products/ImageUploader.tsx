@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { ImagePlus, Link2, Sparkles, Star, Trash2 } from 'lucide-react';
+import { ImagePlus, Link2, MessageSquareText, Sparkles, Star, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { resizeImage } from '../../lib/image';
 import { useAuth } from '../../app/auth';
@@ -8,6 +8,7 @@ import { useStatus } from '../../app/queries';
 import type { ProductImage } from '../../types';
 import { Button, Input, Spinner, cn, useToast } from '../../ui';
 import { AiStudioPanel } from './AiStudioPanel';
+import { ChatGptPromptPanel } from './ChatGptPromptPanel';
 
 export function ImageUploader({
   images,
@@ -25,6 +26,8 @@ export function ImageUploader({
   const status = useStatus();
   const ai = status.data?.aiPhotos;
   const [studioOpen, setStudioOpen] = useState(false);
+  const [chatGptOpen, setChatGptOpen] = useState(false);
+  const canMakePhotos = can.uploadImages(role);
   const fileRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const [uploading, setUploading] = useState(false);
@@ -95,19 +98,26 @@ export function ImageUploader({
           </button>
         )}
       </div>
-      {ai?.enabled && can.uploadImages(role) && !studioOpen && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="mt-3"
-          icon={<Sparkles className="h-4 w-4 text-brand-500" />}
-          disabled={images.length >= max}
-          title={images.length >= max ? `Remove a photo first (up to ${max})` : undefined}
-          onClick={() => setStudioOpen(true)}
-        >
-          Make AI studio photos
-        </Button>
+      {canMakePhotos && !studioOpen && !chatGptOpen && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {ai?.enabled && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Sparkles className="h-4 w-4 text-brand-500" />}
+              disabled={images.length >= max}
+              title={images.length >= max ? `Remove a photo first (up to ${max})` : undefined}
+              onClick={() => setStudioOpen(true)}
+            >
+              Make AI studio photos
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" icon={<MessageSquareText className="h-4 w-4" />} onClick={() => setChatGptOpen(true)}>
+            {ai?.enabled ? 'Use ChatGPT instead (free)' : 'Make studio photos in ChatGPT'}
+          </Button>
+        </div>
       )}
+      {chatGptOpen && <ChatGptPromptPanel productName={productName} onClose={() => setChatGptOpen(false)} />}
       {studioOpen && ai && (
         <AiStudioPanel
           productName={productName}

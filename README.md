@@ -118,6 +118,8 @@ The code lives in the private repository **hcyn1922/hali-eshop**. Vercel deploys
 
 How it works: the photo goes to the inspect model, which reports the product and every word on it. Staff check and correct that report (this is the approval step), choose up to four views, and click **Proceed**. One photo is made per view and saved to the `product-images` bucket. The wording of the instructions lives in `server/aiPhotoPrompt.ts`.
 
+**Free alternative without an API key:** the Photos section also has **Make studio photos in ChatGPT**. It fills in the master prompt (product name, background, lighting, layout), copies it and opens ChatGPT. Staff attach the product photo there, check ChatGPT's description, reply *Proceed*, then add the downloaded photos with **Add photo**. It uses the staff member's own ChatGPT account and its daily image limits. The prompt text lives in `src/lib/chatgptPrompt.ts`.
+
 Photos can take one to two minutes, so the API function is allowed up to 300 seconds (`vercel.json`). This needs Vercel's Fluid compute, which is on by default for new projects.
 
 ### 6. Add your team
