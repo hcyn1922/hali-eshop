@@ -14,7 +14,7 @@ Works on computers and phones (installable-feeling mobile layout with a bottom t
 | **Orders** | Board (New → Packed → With courier → Delivered) and list views. Multi-item orders with a Maldives address builder (Malé, Hulhumalé, Vilimalé, islands by boat). Courier handover with the courier's name, payments with BML references, delivered/failed/cancelled, and an explicit **return to stock** once goods are physically back. Branded invoice image to share, download or print. |
 | **Buyers** | Directory with addresses, Instagram handles, order history and lifetime spend. |
 | **Products & stock** | Catalog with photos, purchase batches (landed cost incl. freight), an **immutable stock ledger** (received / sold / returned / corrected) and verified stock corrections. Stock can never go below zero. |
-| **Pricing** (owner) | Markup-on-cost vs gross-margin calculator, per-product pricing, bulk updates with preview, optional 8% GST and rounding. |
+| **Pricing** (owner) | Cost-change calculator (supplier discount → price that keeps the same margin or the same profit, then finalise and set it on the product), markup-on-cost vs gross-margin calculator, per-product pricing, bulk updates with preview, optional 8% GST and rounding. |
 | **Reports** (owner) | Sales and profit by period, top products and buyers, sales by channel, payments, delivery fees vs courier charges, 8% GST estimate, stock value, CSV export and print. |
 | **Suppliers & couriers** | Suppliers, categories and courier services with their usual charges. |
 | **Social posts** | Plan posts per product with caption, image, date, status and the live link. |
