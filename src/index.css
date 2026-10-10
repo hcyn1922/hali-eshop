@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+/* Dark mode follows the `dark` class on <html> (set from the saved or system preference). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Hali e-shop design tokens.
+ * Gray, success, warning and error scales follow the Untitled UI palette.
+ * Brand colours come from the Hali logo: navy #0F1736 and coral red #EB3A41.
+ */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Poppins", "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-gray-25: #fcfcfd;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f2f4f7;
+  --color-gray-200: #eaecf0;
+  --color-gray-300: #d0d5dd;
+  --color-gray-400: #98a2b3;
+  --color-gray-500: #667085;
+  --color-gray-600: #475467;
+  --color-gray-700: #344054;
+  --color-gray-800: #1d2939;
+  --color-gray-900: #101828;
+  --color-gray-950: #0c111d;
+
+  /* Coral red from the logo */
+  --color-brand-25: #fff8f8;
+  --color-brand-50: #fef1f1;
+  --color-brand-100: #fde0e1;
+  --color-brand-200: #fbc5c7;
+  --color-brand-300: #f79c9f;
+  --color-brand-400: #f16a6f;
+  --color-brand-500: #eb3a41;
+  --color-brand-600: #d6262d;
+  --color-brand-700: #b31d23;
+  --color-brand-800: #941c21;
+  --color-brand-900: #7b1d21;
+
+  /* Navy from the logo */
+  --color-navy-25: #f5f6fa;
+  --color-navy-50: #eef0f7;
+  --color-navy-100: #dde1ee;
+  --color-navy-200: #bcc4dd;
+  --color-navy-300: #8f9bc2;
+  --color-navy-400: #5e6c9e;
+  --color-navy-500: #3e4c80;
+  --color-navy-600: #2e3a68;
+  --color-navy-700: #232d54;
+  --color-navy-800: #1a2244;
+  --color-navy-900: #0f1736;
+  --color-navy-950: #0a0f24;
+
+  --color-success-50: #ecfdf3;
+  --color-success-100: #dcfae6;
+  --color-success-200: #abefc6;
+  --color-success-500: #17b26a;
+  --color-success-600: #079455;
+  --color-success-700: #067647;
+
+  --color-warning-50: #fffaeb;
+  --color-warning-100: #fef0c7;
+  --color-warning-200: #fedf89;
+  --color-warning-500: #f79009;
+  --color-warning-600: #dc6803;
+  --color-warning-700: #b54708;
+
+  --color-error-50: #fef3f2;
+  --color-error-100: #fee4e2;
+  --color-error-200: #fecdca;
+  --color-error-500: #f04438;
+  --color-error-600: #d92d20;
+  --color-error-700: #b42318;
+
+  --color-blue-50: #eff8ff;
+  --color-blue-200: #b2ddff;
+  --color-blue-500: #2e90fa;
+  --color-blue-700: #175cd3;
+
+  --color-purple-50: #f4f3ff;
+  --color-purple-200: #d9d6fe;
+  --color-purple-500: #7a5af8;
+  --color-purple-700: #5925dc;
+
+  /* Semantic surfaces (swap in dark mode below) */
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-on-primary: var(--on-primary);
+  --color-ring: var(--ring);
+
+  --shadow-xs: 0 1px 2px rgb(16 24 40 / 0.05);
+  --shadow-sm: 0 1px 3px rgb(16 24 40 / 0.1), 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-lg: 0 12px 16px -4px rgb(16 24 40 / 0.08), 0 4px 6px -2px rgb(16 24 40 / 0.03);
+  --shadow-xl: 0 20px 24px -4px rgb(16 24 40 / 0.08), 0 8px 8px -4px rgb(16 24 40 / 0.03);
+}
+
+:root {
+  --page: var(--color-gray-50);
+  --surface: #ffffff;
+  --subtle: var(--color-gray-50);
+  --hover: var(--color-gray-50);
+  --line: var(--color-gray-200);
+  --line-strong: var(--color-gray-300);
+  --fg: var(--color-gray-900);
+  --fg-2: var(--color-gray-700);
+  --fg-3: var(--color-gray-600);
+  --fg-4: var(--color-gray-500);
+  --primary: var(--color-navy-900);
+  --primary-hover: var(--color-navy-800);
+  --on-primary: #ffffff;
+  --ring: rgb(15 23 54 / 0.16);
+  color-scheme: light;
+}
+
+.dark {
+  --page: var(--color-gray-950);
+  --surface: #121826;
+  --subtle: #161d2c;
+  --hover: #1a2233;
+  --line: var(--color-gray-800);
+  --line-strong: var(--color-gray-700);
+  --fg: var(--color-gray-50);
+  --fg-2: var(--color-gray-300);
+  --fg-3: var(--color-gray-400);
+  --fg-4: var(--color-gray-500);
+  --primary: #f5f6fa;
+  --primary-hover: #dde1ee;
+  --on-primary: var(--color-navy-900);
+  --ring: rgb(235 58 65 / 0.35);
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--page);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Tabular figures for money and quantities */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Shared focus ring (Untitled UI style) */
+.focus-ring:focus-visible,
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--ring);
+}
+
+/* Bottom safe area for the mobile tab bar */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.animate-fade-in { animation: fade-in 150ms ease-out; }
+.animate-slide-up { animation: slide-up 180ms ease-out; }
+.animate-slide-in-right { animation: slide-in-right 220ms cubic-bezier(0.32, 0.72, 0, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-up,
+  .animate-slide-in-right { animation: none; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+}
