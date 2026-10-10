@@ -4,7 +4,8 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { db, PRIMARY_OWNER_EMAIL } from './server/db.ts';
 import { StoreConflictError } from './server/store.ts';
-import { allow, extractToken, getAuth, HttpError, requireAuth } from './server/auth.ts';
+import { allow, extractToken, getAuth, HttpError, requireAuth, resolveAuth } from './server/auth.ts';
+import { aiPhotoConfig, generatePhotos, inspectProduct, parseApproved, parseStudioRequest, parseViews } from './server/aiPhotos.ts';
 import { LOCAL_UPLOAD_DIR, readPaymentSlip, savePaymentSlip, saveProductImage } from './server/uploads.ts';
 import { appUrl, emailConfigured, notificationRecipient, notifyAccessRequest, notifyDelivered, notifyNewOrder, sendTestEmail } from './server/notify.ts';
 import type { StaffRole } from './src/types/index.ts';
@@ -38,30 +39,25 @@ app.use('/uploads', express.static(LOCAL_UPLOAD_DIR, { maxAge: '7d', fallthrough
 // -----------------------------------------------------------------------------
 let requestQueue: Promise<void> = Promise.resolve();
 
-app.use('/api', (req, res, next) => {
+/** Waits for this instance's turn at the database; call the returned function to hand it on. */
+function takeTurn(): Promise<() => void> {
   let release!: () => void;
   const turn = new Promise<void>(resolve => (release = resolve));
   const previous = requestQueue;
   requestQueue = previous.then(() => turn);
+  return previous.then(() => release);
+}
 
-  let released = false;
-  const done = () => {
-    if (!released) {
-      released = true;
-      release();
-    }
-  };
-  res.on('finish', done);
-  res.on('close', done);
-
-  previous
-    .then(() => db.sync())
-    .then(() => next())
-    .catch(err => {
-      done();
-      next(err);
-    });
-});
+/** Runs a short database step in turn with every other request (used by long-running routes). */
+async function exclusive<T>(fn: () => Promise<T> | T): Promise<T> {
+  const release = await takeTurn();
+  try {
+    await db.sync();
+    return await fn();
+  } finally {
+    release();
+  }
+}
 
 /** Wraps an async route so thrown errors reach the error handler. */
 type AsyncHandler = (req: express.Request, res: express.Response) => Promise<unknown> | unknown;
@@ -70,6 +66,85 @@ const route = (fn: AsyncHandler): express.RequestHandler => (req, res, next) => 
     .then(() => fn(req, res))
     .catch(next);
 };
+
+// -----------------------------------------------------------------------------
+// AI studio product photos
+// These calls take from several seconds to over a minute, so they are registered
+// BEFORE the request queue: only the quick sign-in check and usage-log writes wait
+// for a turn, and the rest of the shop keeps working while photos are made.
+// -----------------------------------------------------------------------------
+const PHOTO_ROLES: StaffRole[] = ['owner', 'inventory', 'marketing'];
+
+async function authorisePhotoStaff(req: express.Request) {
+  const auth = await exclusive(() => resolveAuth(req));
+  if (!PHOTO_ROLES.includes(auth.role)) throw new HttpError(403, `Your role (${auth.role}) is not allowed to do this.`);
+  return auth;
+}
+
+app.post('/api/ai-photos/inspect', route(async (req, res) => {
+  await authorisePhotoStaff(req);
+  const input = parseStudioRequest(req.body);
+  res.json(await inspectProduct(input));
+}));
+
+app.post('/api/ai-photos/generate', route(async (req, res) => {
+  const auth = await authorisePhotoStaff(req);
+  const input = parseStudioRequest(req.body);
+  const approved = parseApproved(req.body?.approved);
+  const views = parseViews(req.body?.views);
+  const config = aiPhotoConfig();
+  if (!config.enabled) throw new HttpError(503, 'AI photos are not set up yet. Add OPENAI_API_KEY to the server settings.');
+
+  const run = await exclusive(() =>
+    db.startAiPhotoRun(auth.staff, {
+      product_name: input.settings.productName,
+      model: config.imageModel,
+      photos: views.length,
+      dailyLimit: config.dailyLimit,
+    })
+  );
+  let photos: Awaited<ReturnType<typeof generatePhotos>> = [];
+  try {
+    photos = await generatePhotos(input, approved, views);
+  } finally {
+    const made = photos.filter(p => p.url).length;
+    await exclusive(() => db.finishAiPhotoRun(run.id, made)).catch(err => console.error('[ai-photos] log update failed:', err));
+  }
+  if (!photos.some(p => p.url)) {
+    throw new HttpError(502, photos[0]?.error || 'No photos could be made. Please try again.');
+  }
+  const remaining = await exclusive(() => Math.max(0, config.dailyLimit - db.aiPhotosUsedToday(auth.staffId)));
+  res.json({ photos, remaining_today: remaining });
+}));
+
+app.use('/api', (req, res, next) => {
+  let released = false;
+  let release: (() => void) | undefined;
+  const done = () => {
+    if (!released) {
+      released = true;
+      release?.();
+    }
+  };
+  res.on('finish', done);
+  res.on('close', done);
+
+  takeTurn()
+    .then(async r => {
+      release = r;
+      if (released) {
+        r(); // the client went away while waiting: hand the turn straight on
+        return;
+      }
+      await db.sync();
+      next();
+    })
+    .catch(err => {
+      done();
+      next(err);
+    });
+});
+
 
 const ALL: StaffRole[] = ['owner', 'sales', 'inventory', 'marketing'];
 const OWNER: StaffRole[] = ['owner'];
@@ -170,6 +245,10 @@ app.get('/api/status', route((req, res) => {
     storage: db.storageBackend,
     supabaseConfigured: db.storageBackend === 'supabase',
     emailConfigured: emailConfigured(),
+    aiPhotos: (() => {
+      const c = aiPhotoConfig();
+      return { enabled: c.enabled, model: c.imageModel, dailyLimit: c.dailyLimit, usedToday: db.aiPhotosUsedToday(getAuth(req).staffId) };
+    })(),
     notifyEmail: getAuth(req).role === 'owner' ? notificationRecipient() : undefined,
   });
 }));

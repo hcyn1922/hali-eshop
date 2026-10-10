@@ -1,37 +1,30 @@
 import React, { useRef, useState } from 'react';
-import { ImagePlus, Link2, Star, Trash2 } from 'lucide-react';
+import { ImagePlus, Link2, Sparkles, Star, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { resizeImage } from '../../lib/image';
+import { useAuth } from '../../app/auth';
+import { can } from '../../app/permissions';
+import { useStatus } from '../../app/queries';
 import type { ProductImage } from '../../types';
 import { Button, Input, Spinner, cn, useToast } from '../../ui';
+import { AiStudioPanel } from './AiStudioPanel';
 
-const MAX_SIDE = 1600;
-
-/** Shrinks a photo to at most 1600px and re-encodes it as JPEG before upload. */
-function resize(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Could not read the file.'));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('That file is not an image we can read.'));
-      img.onload = () => {
-        const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext('2d')!;
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
-      };
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-export function ImageUploader({ images, onChange, max = 4 }: { images: ProductImage[]; onChange: (images: ProductImage[]) => void; max?: number }) {
+export function ImageUploader({
+  images,
+  onChange,
+  max = 8,
+  productName,
+}: {
+  images: ProductImage[];
+  onChange: (images: ProductImage[]) => void;
+  max?: number;
+  /** Pre-fills the AI studio. */
+  productName?: string;
+}) {
+  const { role } = useAuth();
+  const status = useStatus();
+  const ai = status.data?.aiPhotos;
+  const [studioOpen, setStudioOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const toast = useToast();
   const [uploading, setUploading] = useState(false);
@@ -49,7 +42,7 @@ export function ImageUploader({ images, onChange, max = 4 }: { images: ProductIm
     let next = images;
     try {
       for (const file of Array.from(files).slice(0, max - images.length)) {
-        const dataUrl = await resize(file);
+        const dataUrl = await resizeImage(file);
         const { url } = await api.uploadImage(dataUrl);
         next = add(url, next);
         onChange(next);
@@ -102,6 +95,31 @@ export function ImageUploader({ images, onChange, max = 4 }: { images: ProductIm
           </button>
         )}
       </div>
+      {ai?.enabled && can.uploadImages(role) && !studioOpen && (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="mt-3"
+          icon={<Sparkles className="h-4 w-4 text-brand-500" />}
+          disabled={images.length >= max}
+          title={images.length >= max ? `Remove a photo first (up to ${max})` : undefined}
+          onClick={() => setStudioOpen(true)}
+        >
+          Make AI studio photos
+        </Button>
+      )}
+      {studioOpen && ai && (
+        <AiStudioPanel
+          productName={productName}
+          roomLeft={max - images.length}
+          remainingToday={Math.max(0, ai.dailyLimit - ai.usedToday)}
+          onAdd={urls => onChange(urls.reduce((acc, url) => add(url, acc), images))}
+          onClose={() => {
+            setStudioOpen(false);
+            status.refetch();
+          }}
+        />
+      )}
       <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden" onChange={e => upload(e.target.files)} />
       {images.length < max &&
         (showLink ? (

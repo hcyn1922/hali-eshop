@@ -17,6 +17,9 @@ import {
   RegisterResult,
   AuthSettings,
   ShopProfile,
+  AiStudioInput,
+  AiInspection,
+  AiPhotoResult,
 } from '../types';
 import { supabase } from '../supabaseClient';
 
@@ -166,6 +169,7 @@ export const api = {
       supabaseConfigured: boolean;
       emailConfigured: boolean;
       notifyEmail?: string;
+      aiPhotos?: { enabled: boolean; model: string; dailyLimit: number; usedToday: number };
     }>(
       '/api/status'
     ),
@@ -275,6 +279,11 @@ export const api = {
   getDeliveries: () => request<DeliveryHandover[]>('/api/deliveries'),
   getExistingAddresses: () => request<string[]>('/api/addresses/existing'),
   uploadImage: (dataUrl: string) => request<{ url: string }>('/api/uploads', post({ data: dataUrl })),
+
+  // AI studio photos (slow: the inspect step takes seconds, generating can take a minute or more)
+  inspectAiPhoto: (input: AiStudioInput) => request<AiInspection>('/api/ai-photos/inspect', post(input)),
+  generateAiPhotos: (input: AiStudioInput & { approved: AiInspection; views: string[] }) =>
+    request<{ photos: AiPhotoResult[]; remaining_today: number }>('/api/ai-photos/generate', post(input)),
 
   // Social Posts
   getSocialPosts: () => request<SocialPost[]>('/api/social-posts'),

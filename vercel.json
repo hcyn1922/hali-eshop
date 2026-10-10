@@ -2,7 +2,8 @@
   "version": 2,
   "functions": {
     "api/index.ts": {
-      "includeFiles": "data/seed.json"
+      "includeFiles": "data/seed.json",
+      "maxDuration": 300
     }
   },
   "rewrites": [

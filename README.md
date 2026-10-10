@@ -18,6 +18,7 @@ Works on computers and phones (installable-feeling mobile layout with a bottom t
 | **Reports** (owner) | Sales and profit by period, top products and buyers, sales by channel, payments, delivery fees vs courier charges, 8% GST estimate, stock value, CSV export and print. |
 | **Suppliers & couriers** | Suppliers, categories and courier services with their usual charges. |
 | **Social posts** | Plan posts per product with caption, image, date, status and the live link. |
+| **AI studio photos** | Turn a snapshot of a product into professional 4:5 studio photos. The AI first describes the product and copies its label text; staff correct it, approve, then pick which of the photos to keep. Daily limit per person. |
 | **Staff & access** (owner) | Add staff, approve sign-up requests, change roles, reset passwords, deactivate or delete accounts. |
 | **Owner emails** | The owner gets an email for every new order, every delivered order and every new staff access request. |
 
@@ -107,7 +108,19 @@ The code lives in the private repository **hcyn1922/hali-eshop**. Vercel deploys
 4. In the app, open **Settings → Setup** and click **Send a test email**.
 5. Later, to send from your own address (e.g. `orders@hali.mv`) or to another inbox, verify your domain in Resend → **Domains**, then set `MAIL_FROM` (and `NOTIFY_EMAIL` if it should go elsewhere).
 
-### 5. Add your team
+### 5. Turn on AI studio photos (optional)
+
+1. Create an account at <https://platform.openai.com>, add a payment method under **Billing**, and set a monthly budget limit there.
+2. Go to **API keys → Create new secret key** and copy it.
+3. In Vercel → **Settings → Environment Variables** add `OPENAI_API_KEY` with that key, then **Redeploy**.
+4. Optional: change `OPENAI_IMAGE_MODEL`, `OPENAI_IMAGE_QUALITY` or `AI_PHOTO_DAILY_LIMIT` (see `.env.example`).
+5. In the app, **Settings → Setup** shows AI photos as on. Open a product → **Edit** → **Photos → Make AI studio photos**.
+
+How it works: the photo goes to the inspect model, which reports the product and every word on it. Staff check and correct that report (this is the approval step), choose up to four views, and click **Proceed**. One photo is made per view and saved to the `product-images` bucket. The wording of the instructions lives in `server/aiPhotoPrompt.ts`.
+
+Photos can take one to two minutes, so the API function is allowed up to 300 seconds (`vercel.json`). This needs Vercel's Fluid compute, which is on by default for new projects.
+
+### 6. Add your team
 
 In **Staff & access → Add staff**, enter each person's name, email and role, and either give them a starting password or invite the same email from Supabase (**Authentication → Users → Invite user**). People can also use **Request access** on the sign-in page; you approve them on the **Requests** tab.
 
@@ -130,5 +143,6 @@ Address suggestions come from a built-in list of Malé and Hulhumalé streets, H
 | :--- | :--- |
 | Supabase Postgres + Storage | Ready; needs the keys above. |
 | Supabase Auth (password reset emails) | Ready; optional. |
+| OpenAI (AI studio photos) | Ready; optional, needs `OPENAI_API_KEY`. |
 | Instagram / Viber / WhatsApp | Orders are entered manually from DMs. |
 | BML payments | Staff record the transfer reference against the order. |
