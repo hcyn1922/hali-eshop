@@ -154,8 +154,10 @@ export function SuppliersPage() {
   const categories = useCategories();
   const couriers = useCouriers();
   const products = useProducts();
-  const showCatalog = can.viewSuppliers(role);
-  const [tab, setTab] = useState<Tab>(showCatalog ? 'suppliers' : 'couriers');
+  const showSuppliers = can.viewSuppliers(role);
+  const showCategories = can.viewSuppliers(role) || can.manageCatalog(role);
+  const showCatalog = showSuppliers || showCategories;
+  const [tab, setTab] = useState<Tab>(showSuppliers ? 'suppliers' : showCategories ? 'categories' : 'couriers');
   const [editing, setEditing] = useState<{ kind: Tab; item?: any } | null>(null);
   const [deleting, setDeleting] = useState<{ kind: 'category' | 'courier'; id: string; name: string } | null>(null);
 
@@ -170,7 +172,8 @@ export function SuppliersPage() {
   );
 
   const addLabel = tab === 'suppliers' ? 'Add supplier' : tab === 'categories' ? 'New category' : 'Add courier';
-  const canAdd = tab === 'couriers' ? can.manageCouriers(role) : can.manageCatalog(role);
+  const canAdd =
+    tab === 'couriers' ? can.manageCouriers(role) : tab === 'suppliers' ? can.manageSuppliers(role) : can.manageCatalog(role);
 
   return (
     <>
@@ -191,9 +194,9 @@ export function SuppliersPage() {
           value={tab}
           onChange={setTab}
           items={[
-            { key: 'suppliers', label: 'Suppliers', count: suppliers.data?.length },
-            { key: 'categories', label: 'Categories', count: categories.data?.length },
-            { key: 'couriers', label: 'Couriers', count: couriers.data?.length },
+            ...(showSuppliers ? [{ key: 'suppliers' as Tab, label: 'Suppliers', count: suppliers.data?.length }] : []),
+            ...(showCategories ? [{ key: 'categories' as Tab, label: 'Categories', count: categories.data?.length }] : []),
+            { key: 'couriers' as Tab, label: 'Couriers', count: couriers.data?.length },
           ]}
         />
       )}
@@ -203,7 +206,7 @@ export function SuppliersPage() {
           <Table
             rows={suppliers.data || []}
             rowKey={s => s.id}
-            onRowClick={can.manageCatalog(role) ? s => setEditing({ kind: 'suppliers', item: s }) : undefined}
+            onRowClick={can.manageSuppliers(role) ? s => setEditing({ kind: 'suppliers', item: s }) : undefined}
             empty={<EmptyState icon={<Building2 className="h-6 w-6" />} title="No suppliers yet" description="Add the wholesalers you buy stock from." />}
             columns={[
               {

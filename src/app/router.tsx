@@ -85,7 +85,7 @@ export const router = createBrowserRouter([
       { path: '/products', element: <ProductsPage /> },
       { path: '/products/:productId', element: <ProductDetailPage /> },
       { path: '/stock', element: <StockLedgerPage /> },
-      { path: '/suppliers', element: <Allow when={r => can.viewSuppliers(r) || can.manageCouriers(r)}><SuppliersPage /></Allow> },
+      { path: '/suppliers', element: <Allow when={r => can.viewSuppliers(r) || can.manageCatalog(r) || can.manageCouriers(r)}><SuppliersPage /></Allow> },
       { path: '/social', element: <Allow when={can.planPosts}><SocialPage /></Allow> },
       { path: '/pricing', element: <Allow when={can.viewPricing}><PricingPage /></Allow> },
       { path: '/reports', element: <Allow when={can.viewReports}><ReportsPage /></Allow> },

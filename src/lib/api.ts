@@ -22,6 +22,7 @@ import {
   AiPhotoResult,
 } from '../types';
 import { supabase } from '../supabaseClient';
+import type { ConfigurableRole, Permission } from './permissions';
 
 const TOKEN_KEY = 'hali_auth_token';
 const PROFILE_KEY = 'hali_staff_profile';
@@ -148,7 +149,7 @@ export const api = {
   // Authentication
   login: (credentials: { email: string; password: string }) =>
     request<{ token: string; staff: StaffProfile; expires_at: string }>('/api/auth/login', post(credentials)),
-  getMe: () => request<{ staff: StaffProfile; has_local_password: boolean; primary_owner_email: string }>('/api/auth/me'),
+  getMe: () => request<{ staff: StaffProfile; has_local_password: boolean; primary_owner_email: string; permissions: Permission[] }>('/api/auth/me'),
   logout: () => request<{ success: boolean; message: string }>('/api/auth/logout', post()),
   changePassword: (data: { currentPassword: string; newPassword: string }) =>
     request<{ success: boolean; message: string }>('/api/auth/change-password', post(data)),
@@ -174,6 +175,12 @@ export const api = {
       '/api/status'
     ),
   loadSampleInventory: () => request<{ message: string; success: boolean }>('/api/sample/load', post()),
+
+  // Role permissions (owner)
+  getRolePermissions: () => request<Record<ConfigurableRole, Permission[]>>('/api/role-permissions'),
+  updateRolePermissions: (role: ConfigurableRole, permissions: Permission[]) =>
+    request<Record<ConfigurableRole, Permission[]>>(`/api/role-permissions/${role}`, put({ permissions })),
+  resetRolePermissions: () => request<Record<ConfigurableRole, Permission[]>>('/api/role-permissions/reset', post()),
 
   // Shop profile
   getShopProfile: () => request<ShopProfile>('/api/shop-profile'),

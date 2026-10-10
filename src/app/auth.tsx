@@ -3,6 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api, getAuthToken, getCachedStaffProfile, isSupabaseToken, setAuthToken } from '../lib/api';
 import { supabase } from '../supabaseClient';
 import type { StaffProfile, StaffRole } from '../types';
+import type { Permission } from '../lib/permissions';
+import { setCurrentPermissions } from './permissions';
 
 type AuthStatus = 'loading' | 'signed-out' | 'signed-in' | 'recovery';
 
@@ -12,6 +14,7 @@ interface AuthContextValue {
   role: StaffRole;
   primaryOwnerEmail: string;
   hasLocalPassword: boolean;
+  permissions: Permission[];
   /** Completes a sign-in with a token; the server supplies the profile and role. */
   completeSignIn: (token: string, staff?: StaffProfile) => Promise<void>;
   signOut: () => Promise<void>;
@@ -34,6 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [staff, setStaff] = useState<StaffProfile | null>(() => getCachedStaffProfile());
   const [primaryOwnerEmail, setPrimaryOwnerEmail] = useState('');
   const [hasLocalPassword, setHasLocalPassword] = useState(true);
+  const [permissions, setPermissions] = useState<Permission[]>([]);
 
   const loadProfile = useCallback(async () => {
     const me = await api.getMe();
@@ -41,6 +45,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStaff(me.staff);
     setPrimaryOwnerEmail(me.primary_owner_email);
     setHasLocalPassword(me.has_local_password);
+    setCurrentPermissions(me.permissions);
+    setPermissions(me.permissions || []);
     return me.staff;
   }, []);
 
@@ -123,6 +129,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => data.subscription.unsubscribe();
   }, []);
 
+  // Pick up permission or role changes made by the owner when staff come back to the tab
+  useEffect(() => {
+    if (status !== 'signed-in') return;
+    const onFocus = () => {
+      loadProfile().catch(() => {});
+    };
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(onFocus, 5 * 60_000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(timer);
+    };
+  }, [status, loadProfile]);
+
   // Any 401 from the API ends the session
   useEffect(() => {
     const onUnauthorized = () => {
@@ -141,6 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       role: staff?.role || 'sales',
       primaryOwnerEmail,
       hasLocalPassword,
+      permissions,
       completeSignIn,
       signOut,
       refreshProfile: async () => {
@@ -151,7 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStatus(getAuthToken() ? 'signed-in' : 'signed-out');
       },
     }),
-    [status, staff, primaryOwnerEmail, hasLocalPassword, completeSignIn, signOut, loadProfile]
+    [status, staff, primaryOwnerEmail, hasLocalPassword, permissions, completeSignIn, signOut, loadProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

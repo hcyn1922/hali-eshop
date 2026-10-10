@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import { Check, KeyRound, MoreHorizontal, Power, ShieldCheck, Trash2, UserCog, UserPlus, X } from 'lucide-react';
 import { useAuth } from '../../app/auth';
-import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '../../app/permissions';
+import { ROLE_LABELS } from '../../app/permissions';
 import { keys, useAction, useAuthSettings, useStaff } from '../../app/queries';
 import { api } from '../../lib/api';
 import { formatMaldivesDate } from '../../lib/formatters';
 import type { StaffProfile, StaffRole } from '../../types';
+import { RolePermissions, RoleSummary } from './RolePermissions';
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Input, Menu, Modal, PageHeader, Select, Table, Tabs, Toggle, type BadgeColor } from '../../ui';
 
 const ROLES: StaffRole[] = ['owner', 'sales', 'inventory', 'marketing'];
 const ROLE_COLORS: Record<StaffRole, BadgeColor> = { owner: 'navy', sales: 'blue', inventory: 'purple', marketing: 'gray' };
 
-type Tab = 'team' | 'requests' | 'inactive';
+type Tab = 'team' | 'requests' | 'inactive' | 'roles';
 
 function InviteModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({ full_name: '', email: '', phone: '', role: 'sales' as StaffRole, password: '' });
@@ -53,7 +54,7 @@ function InviteModal({ onClose }: { onClose: () => void }) {
             </option>
           ))}
         </Select>
-        <p className="-mt-2 text-sm text-fg-3 sm:col-span-2">{ROLE_DESCRIPTIONS[form.role]}</p>
+        <p className="-mt-2 text-sm text-fg-3 sm:col-span-2"><RoleSummary role={form.role} /></p>
         <Input
           label="Initial password"
           type="text"
@@ -98,7 +99,7 @@ function RoleModal({ member, onClose }: { member: StaffProfile; onClose: () => v
             <input type="radio" name="role" className="mt-1 accent-navy-900" checked={role === r} onChange={() => setRole(r)} />
             <span>
               <span className="block text-sm font-semibold text-fg">{ROLE_LABELS[r]}</span>
-              <span className="text-sm text-fg-3">{ROLE_DESCRIPTIONS[r]}</span>
+              <span className="text-sm text-fg-3"><RoleSummary role={r} /></span>
             </span>
           </label>
         ))}
@@ -216,8 +217,13 @@ export function StaffPage() {
           { key: 'team', label: 'Team', count: team.length },
           { key: 'requests', label: 'Requests', count: requests.length },
           { key: 'inactive', label: 'Deactivated', count: inactive.length },
+          { key: 'roles', label: 'Roles & permissions' },
         ]}
       />
+      {tab === 'roles' ? (
+        <RolePermissions />
+      ) : (
+      <>
       <Card>
         <Table
           rows={rows}
@@ -308,6 +314,8 @@ export function StaffPage() {
       </Card>
 
       <AccessSettings />
+      </>
+      )}
 
       {modal?.kind === 'invite' && <InviteModal onClose={() => setModal(null)} />}
       {modal?.kind === 'role' && modal.member && <RoleModal member={modal.member} onClose={() => setModal(null)} />}

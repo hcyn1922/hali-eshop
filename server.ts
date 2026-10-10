@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { db, PRIMARY_OWNER_EMAIL } from './server/db.ts';
 import { StoreConflictError } from './server/store.ts';
-import { allow, extractToken, getAuth, HttpError, requireAuth, resolveAuth } from './server/auth.ts';
+import { allow, extractToken, getAuth, HttpError, need, requireAuth, resolveAuth } from './server/auth.ts';
 import { aiPhotoConfig, generatePhotos, inspectProduct, parseApproved, parseStudioRequest, parseViews } from './server/aiPhotos.ts';
 import { LOCAL_UPLOAD_DIR, readPaymentSlip, savePaymentSlip, saveProductImage } from './server/uploads.ts';
 import { appUrl, emailConfigured, notificationRecipient, notifyAccessRequest, notifyDelivered, notifyNewOrder, sendTestEmail } from './server/notify.ts';
@@ -73,11 +73,12 @@ const route = (fn: AsyncHandler): express.RequestHandler => (req, res, next) => 
 // BEFORE the request queue: only the quick sign-in check and usage-log writes wait
 // for a turn, and the rest of the shop keeps working while photos are made.
 // -----------------------------------------------------------------------------
-const PHOTO_ROLES: StaffRole[] = ['owner', 'inventory', 'marketing'];
-
 async function authorisePhotoStaff(req: express.Request) {
   const auth = await exclusive(() => resolveAuth(req));
-  if (!PHOTO_ROLES.includes(auth.role)) throw new HttpError(403, `Your role (${auth.role}) is not allowed to do this.`);
+  // Same rule as photo uploads: product managers and social post planners
+  if (!db.can(auth.role, 'catalog.manage') && !db.can(auth.role, 'posts.manage')) {
+    throw new HttpError(403, 'Your role does not have access to this. Ask the shop owner if you need it.');
+  }
   return auth;
 }
 
@@ -146,12 +147,7 @@ app.use('/api', (req, res, next) => {
 });
 
 
-const ALL: StaffRole[] = ['owner', 'sales', 'inventory', 'marketing'];
 const OWNER: StaffRole[] = ['owner'];
-const STOCK_MANAGERS: StaffRole[] = ['owner', 'inventory'];
-const ORDER_TAKERS: StaffRole[] = ['owner', 'sales'];
-const ORDER_PROCESSORS: StaffRole[] = ['owner', 'sales', 'inventory'];
-const CONTENT_TEAM: StaffRole[] = ['owner', 'marketing'];
 
 // -----------------------------------------------------------------------------
 // AUTHENTICATION (public)
@@ -206,7 +202,12 @@ app.use('/api', requireAuth);
 
 app.get('/api/auth/me', route((req, res) => {
   const { staff } = getAuth(req);
-  res.json({ staff, has_local_password: db.hasLocalPassword(staff.id), primary_owner_email: PRIMARY_OWNER_EMAIL });
+  res.json({
+    staff,
+    has_local_password: db.hasLocalPassword(staff.id),
+    primary_owner_email: PRIMARY_OWNER_EMAIL,
+    permissions: db.permissionsFor(staff.role),
+  });
 }));
 
 app.post('/api/auth/change-password', route(async (req, res) => {
@@ -322,22 +323,37 @@ app.put('/api/staff/:id', route(async (req, res) => {
 }));
 
 // -----------------------------------------------------------------------------
+// Role permissions (owner only)
+// -----------------------------------------------------------------------------
+app.get('/api/role-permissions', allow(...OWNER), route((_req, res) => {
+  res.json(db.getRolePermissions());
+}));
+
+app.put('/api/role-permissions/:role', allow(...OWNER), route(async (req, res) => {
+  res.json(await db.updateRolePermissions(req.params.role, req.body?.permissions));
+}));
+
+app.post('/api/role-permissions/reset', allow(...OWNER), route(async (_req, res) => {
+  res.json(await db.resetRolePermissions());
+}));
+
+// -----------------------------------------------------------------------------
 // Categories & suppliers
 // -----------------------------------------------------------------------------
 app.get('/api/categories', route((_req, res) => {
   res.json(db.getCategories());
 }));
 
-app.post('/api/categories', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.post('/api/categories', need('catalog.manage'), route(async (req, res) => {
   const { name, description } = req.body || {};
   res.status(201).json(await db.createCategory(String(name || ''), description));
 }));
 
-app.put('/api/categories/:id', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.put('/api/categories/:id', need('catalog.manage'), route(async (req, res) => {
   res.json(await db.updateCategory(req.params.id, req.body || {}));
 }));
 
-app.delete('/api/categories/:id', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.delete('/api/categories/:id', need('catalog.manage'), route(async (req, res) => {
   await db.deleteCategory(req.params.id);
   res.json({ success: true });
 }));
@@ -346,11 +362,11 @@ app.get('/api/suppliers', route((req, res) => {
   res.json(db.getSuppliers(getAuth(req).role));
 }));
 
-app.post('/api/suppliers', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.post('/api/suppliers', need('suppliers.manage'), route(async (req, res) => {
   res.status(201).json(await db.createSupplier(req.body || {}));
 }));
 
-app.put('/api/suppliers/:id', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.put('/api/suppliers/:id', need('suppliers.manage'), route(async (req, res) => {
   res.json(await db.updateSupplier(req.params.id, req.body || {}));
 }));
 
@@ -368,11 +384,11 @@ app.get('/api/products/:id', route((req, res) => {
   res.json(prod);
 }));
 
-app.post('/api/products', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.post('/api/products', need('catalog.manage'), route(async (req, res) => {
   const { role, staffId } = getAuth(req);
   const { openingStock, ...productData } = req.body || {};
-  if (role !== 'owner') {
-    // Non-owners cannot see costs, so they cannot set them either
+  if (!db.can(role, 'costs.view')) {
+    // Roles that cannot see costs cannot set them either
     delete productData.wholesale_unit_cost;
     productData.wholesale_unit_cost = 0;
   }
@@ -380,13 +396,13 @@ app.post('/api/products', allow(...STOCK_MANAGERS), route(async (req, res) => {
   res.status(201).json(db.getProductById(created.id, role));
 }));
 
-app.put('/api/products/:id', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.put('/api/products/:id', need('catalog.manage'), route(async (req, res) => {
   const { role } = getAuth(req);
   const updated = await db.updateProduct(req.params.id, req.body || {}, role);
   res.json(db.getProductById(updated.id, role));
 }));
 
-app.post('/api/batches', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.post('/api/batches', need('catalog.manage'), route(async (req, res) => {
   const { role, staffId } = getAuth(req);
   const batch = await db.addPurchaseBatch(req.body || {}, staffId);
   const visible = db.getBatchesForProduct(batch.product_id, role).find(b => b.id === batch.id);
@@ -402,7 +418,7 @@ app.get('/api/stock/movements', route((req, res) => {
   res.json(db.getStockMovements(productId));
 }));
 
-app.post('/api/stock/correct', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.post('/api/stock/correct', need('catalog.manage'), route(async (req, res) => {
   const { productId, newQuantity, reason } = req.body || {};
   res.json(await db.correctStock(String(productId || ''), Number(newQuantity), String(reason || ''), getAuth(req).staffId));
 }));
@@ -410,19 +426,19 @@ app.post('/api/stock/correct', allow(...STOCK_MANAGERS), route(async (req, res) 
 // -----------------------------------------------------------------------------
 // Buyers
 // -----------------------------------------------------------------------------
-app.get('/api/buyers', allow(...ORDER_PROCESSORS), route((_req, res) => {
+app.get('/api/buyers', need('buyers.view'), route((_req, res) => {
   res.json(db.getBuyers());
 }));
 
-app.post('/api/buyers', allow(...ORDER_TAKERS), route(async (req, res) => {
+app.post('/api/buyers', need('buyers.edit'), route(async (req, res) => {
   res.status(201).json(await db.createBuyer(req.body || {}));
 }));
 
-app.put('/api/buyers/:id', allow(...ORDER_TAKERS), route(async (req, res) => {
+app.put('/api/buyers/:id', need('buyers.edit'), route(async (req, res) => {
   res.json(await db.updateBuyer(req.params.id, req.body || {}));
 }));
 
-app.get('/api/addresses/existing', allow(...ORDER_TAKERS), route((_req, res) => {
+app.get('/api/addresses/existing', need('orders.create', 'buyers.edit'), route((_req, res) => {
   res.json(db.getExistingAddresses());
 }));
 
@@ -433,11 +449,11 @@ app.get('/api/delivery-services', route((_req, res) => {
   res.json(db.getDeliveryServices());
 }));
 
-app.post('/api/delivery-services', allow(...ORDER_PROCESSORS), route(async (req, res) => {
+app.post('/api/delivery-services', need('couriers.manage'), route(async (req, res) => {
   res.status(201).json(await db.createDeliveryService(req.body || {}));
 }));
 
-app.put('/api/delivery-services/:id', allow(...ORDER_PROCESSORS), route(async (req, res) => {
+app.put('/api/delivery-services/:id', need('couriers.manage'), route(async (req, res) => {
   res.json(await db.updateDeliveryService(req.params.id, req.body || {}));
 }));
 
@@ -451,18 +467,18 @@ app.delete('/api/delivery-services/:id', allow(...OWNER), route(async (req, res)
 // -----------------------------------------------------------------------------
 const visibleOrder = (orderId: string, role: StaffRole) => db.getOrders(role).find(o => o.id === orderId);
 
-app.get('/api/orders', allow(...ORDER_PROCESSORS), route((req, res) => {
+app.get('/api/orders', need('orders.view'), route((req, res) => {
   res.json(db.getOrders(getAuth(req).role));
 }));
 
-app.post('/api/orders', allow(...ORDER_TAKERS), route(async (req, res) => {
+app.post('/api/orders', need('orders.create'), route(async (req, res) => {
   const { role, staffId } = getAuth(req);
   const order = await db.createOrderAtomic(req.body || {}, staffId);
   await notifyNewOrder(visibleOrder(order.id, 'owner')!, getAuth(req).staff.full_name, appUrl(req));
   res.status(201).json(visibleOrder(order.id, role));
 }));
 
-app.post('/api/orders/:id/status', allow(...ORDER_PROCESSORS), route(async (req, res) => {
+app.post('/api/orders/:id/status', need('orders.process'), route(async (req, res) => {
   const { role, staffId } = getAuth(req);
   const { stage, deliveryInfo } = req.body || {};
   const updated = await db.updateOrderStatus(req.params.id, stage, staffId, deliveryInfo);
@@ -471,12 +487,12 @@ app.post('/api/orders/:id/status', allow(...ORDER_PROCESSORS), route(async (req,
 }));
 
 // Failed / cancelled goods only go back on the shelf after staff physically confirm them
-app.post('/api/orders/:id/return-stock', allow(...STOCK_MANAGERS), route(async (req, res) => {
+app.post('/api/orders/:id/return-stock', need('stock.return'), route(async (req, res) => {
   const { reason } = req.body || {};
   res.json(await db.returnOrderStockAtomic(req.params.id, String(reason || ''), getAuth(req).staffId));
 }));
 
-app.post('/api/orders/:id/payment', allow(...ORDER_TAKERS), route(async (req, res) => {
+app.post('/api/orders/:id/payment', need('payments.record'), route(async (req, res) => {
   const { amount, paymentMethod, transactionRef, notes, slip } = req.body || {};
   const payment = await db.recordPayment(
     req.params.id,
@@ -490,16 +506,16 @@ app.post('/api/orders/:id/payment', allow(...ORDER_TAKERS), route(async (req, re
   res.status(201).json(payment);
 }));
 
-app.get('/api/orders/:id/payments', allow(...ORDER_PROCESSORS), route((req, res) => {
+app.get('/api/orders/:id/payments', need('orders.view'), route((req, res) => {
   res.json(db.getPaymentsForOrder(req.params.id));
 }));
 
 // Bank transfer slips are private: uploaded and viewed only through these signed-in routes
-app.post('/api/uploads/slip', allow(...ORDER_TAKERS), route(async (req, res) => {
+app.post('/api/uploads/slip', need('payments.record'), route(async (req, res) => {
   res.status(201).json(await savePaymentSlip(String(req.body?.data || '')));
 }));
 
-app.get('/api/payments/:id/slip', allow(...ORDER_TAKERS), route(async (req, res) => {
+app.get('/api/payments/:id/slip', need('payments.record'), route(async (req, res) => {
   const payment = db.getPayment(req.params.id);
   if (!payment?.slip_path) throw new HttpError(404, 'No slip attached to this payment.');
   const file = await readPaymentSlip(payment.slip_path);
@@ -509,7 +525,7 @@ app.get('/api/payments/:id/slip', allow(...ORDER_TAKERS), route(async (req, res)
   res.send(file.buffer);
 }));
 
-app.get('/api/deliveries', allow(...ORDER_PROCESSORS), route((_req, res) => {
+app.get('/api/deliveries', need('orders.view'), route((_req, res) => {
   res.json(db.getDeliveryHandovers());
 }));
 
@@ -520,18 +536,18 @@ app.get('/api/social-posts', route((_req, res) => {
   res.json(db.getSocialPosts());
 }));
 
-app.post('/api/social-posts', allow(...CONTENT_TEAM), route(async (req, res) => {
+app.post('/api/social-posts', need('posts.manage'), route(async (req, res) => {
   res.status(201).json(await db.createSocialPost(req.body || {}));
 }));
 
-app.put('/api/social-posts/:id', allow(...CONTENT_TEAM), route(async (req, res) => {
+app.put('/api/social-posts/:id', need('posts.manage'), route(async (req, res) => {
   res.json(await db.updateSocialPost(req.params.id, req.body || {}));
 }));
 
 // -----------------------------------------------------------------------------
 // Product photo uploads
 // -----------------------------------------------------------------------------
-app.post('/api/uploads', allow(...STOCK_MANAGERS, 'marketing'), route(async (req, res) => {
+app.post('/api/uploads', need('catalog.manage', 'posts.manage'), route(async (req, res) => {
   const url = await saveProductImage(String(req.body?.data || ''));
   res.status(201).json({ url });
 }));

@@ -29,14 +29,20 @@ Works on computers and phones (installable-feeling mobile layout with a bottom t
 - Cancelled, failed and returned orders and historical opening adjustments are **not** counted as sales.
 - Pricing formulas: markup `cost × (1 + markup% ÷ 100)`, margin `cost ÷ (1 − margin% ÷ 100)`.
 
-### Roles (enforced by the server on every request)
+### Roles & permissions (enforced by the server on every request)
 
-| Role | Can |
+The owner decides what each role can do in **Staff & access → Roles & permissions**: pick Sales, Inventory lead or Marketing and switch features on or off, then **Save**. Changes apply to the server immediately and to staff screens the next time they open the app. **Reset to standard** restores the defaults below.
+
+| Role | Standard permissions |
 | :--- | :--- |
-| **Owner / Admin** | Everything, including wholesale costs, margins, pricing, reports and staff. |
-| **Sales** | Orders, buyers, payments, courier handovers. Costs, markups and supplier payment details are removed by the server before they reach the browser. |
-| **Inventory lead** | Catalog, suppliers, purchase batches, stock corrections, packing and returns to stock. |
-| **Marketing** | Social post planning and the catalog (view only). No orders or buyer details. |
+| **Owner / Admin** | Everything (cannot be limited). |
+| **Sales** | See, create and process orders; record payments and slips; see and edit buyers; manage couriers. |
+| **Inventory lead** | See and process orders; return goods to stock; see buyers; manage couriers, products, stock and suppliers; see shop sales totals. |
+| **Marketing** | Plan social posts; see shop sales totals. |
+
+Switchable features: see orders, create orders, process orders, record payments, return goods to stock, see buyers, add/edit buyers, manage couriers, manage products & stock, see suppliers, manage suppliers, plan social posts, see shop sales totals, see costs & profit, pricing, reports. Turning one on also turns on what it needs (for example, *Reports* needs *See costs & profit*). Costs and margins are removed by the server for any role without *See costs & profit*.
+
+Always owner-only: staff management, sign-up approvals, shop details, email setup, sample data and deleting couriers.
 
 Self-registration can never grant owner access, and sign-ups wait for the owner's approval unless the owner switches on automatic approval.
 

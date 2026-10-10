@@ -1,6 +1,7 @@
 import type express from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { db } from './db.ts';
+import type { Permission } from '../src/lib/permissions.ts';
 import { appUrl, notifyAccessRequest } from './notify.ts';
 import type { StaffProfile, StaffRole } from '../src/types/index.ts';
 import { resolveSupabaseConfig } from '../src/lib/supabaseConfig.ts';
@@ -122,6 +123,17 @@ export const requireAuth: express.RequestHandler = (req, res, next) => {
     })
     .catch(next);
 };
+
+/** Route guard: the caller's role must have this permission (the owner always does). */
+export function need(...permissions: Permission[]): express.RequestHandler {
+  return (req, _res, next) => {
+    const { role } = getAuth(req);
+    if (!permissions.some(p => db.can(role, p))) {
+      return next(new HttpError(403, 'Your role does not have access to this. Ask the shop owner if you need it.'));
+    }
+    next();
+  };
+}
 
 /** Route guard: only the listed roles may continue. */
 export function allow(...roles: StaffRole[]): express.RequestHandler {

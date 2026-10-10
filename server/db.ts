@@ -2,6 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { createStateStore, StateStore } from './store.ts';
+import {
+  ALL_PERMISSIONS,
+  CONFIGURABLE_ROLES,
+  DEFAULT_ROLE_PERMISSIONS,
+  normalizePermissions,
+  type ConfigurableRole,
+  type Permission,
+} from '../src/lib/permissions.ts';
 import type {
   StaffProfile,
   Category,
@@ -164,6 +172,7 @@ interface DatabaseSchema {
   password_reset_codes?: PasswordResetCode[];
   shop_profile?: ShopProfile;
   ai_photo_log?: AiPhotoLogEntry[];
+  role_permissions?: Partial<Record<ConfigurableRole, Permission[]>>;
 }
 
 /** One AI studio photo run, kept for the daily limit and to see who used it. */
@@ -709,7 +718,7 @@ class DatabaseEngine {
   // METRICS & DASHBOARD
   // =========================================================================
   public getDashboardMetrics(role: StaffRole): DashboardMetrics {
-    const isOwner = role === 'owner';
+    const isOwner = this.can(role, 'costs.view');
 
     // Recorded sales only come from real customer orders. Cancelled, failed and returned orders
     // are excluded; historical opening stock adjustments have no order and never count.
@@ -737,7 +746,7 @@ class DatabaseEngine {
 
     return {
       // Sales staff don't see shop-wide revenue
-      recorded_sales_revenue: role === 'sales' ? 0 : Number(recordedSales.toFixed(2)),
+      recorded_sales_revenue: this.can(role, 'sales.view') ? Number(recordedSales.toFixed(2)) : 0,
       orders_in_progress: inProgressCount,
       available_stock_count: availableStockCount,
       low_stock_count: lowStockCount,
@@ -1243,6 +1252,41 @@ class DatabaseEngine {
   }
 
   // =========================================================================
+  // ROLE PERMISSIONS (owner decides what each role can do)
+  // =========================================================================
+  public getRolePermissions(): Record<ConfigurableRole, Permission[]> {
+    const stored = this.data.role_permissions || {};
+    return Object.fromEntries(
+      CONFIGURABLE_ROLES.map(r => [r, normalizePermissions(stored[r] ?? DEFAULT_ROLE_PERMISSIONS[r])])
+    ) as Record<ConfigurableRole, Permission[]>;
+  }
+
+  public permissionsFor(role: StaffRole): Permission[] {
+    if (role === 'owner') return [...ALL_PERMISSIONS];
+    return this.getRolePermissions()[role as ConfigurableRole] || [];
+  }
+
+  /** The single place that answers "may this role do X?". */
+  public can(role: StaffRole, permission: Permission): boolean {
+    return role === 'owner' || this.permissionsFor(role).includes(permission);
+  }
+
+  public async updateRolePermissions(role: string, permissions: unknown): Promise<Record<ConfigurableRole, Permission[]>> {
+    if (!CONFIGURABLE_ROLES.includes(role as ConfigurableRole)) throw new Error('Only sales, inventory and marketing permissions can be changed.');
+    const next = { ...(this.data.role_permissions || {}) };
+    next[role as ConfigurableRole] = normalizePermissions(permissions);
+    this.data.role_permissions = next;
+    await this.persist();
+    return this.getRolePermissions();
+  }
+
+  public async resetRolePermissions(): Promise<Record<ConfigurableRole, Permission[]>> {
+    this.data.role_permissions = {};
+    await this.persist();
+    return this.getRolePermissions();
+  }
+
+  // =========================================================================
   // SHOP PROFILE (invoice details)
   // =========================================================================
   public getShopProfile(): ShopProfile {
@@ -1314,7 +1358,7 @@ class DatabaseEngine {
   // =========================================================================
   public getSuppliers(role: StaffRole = 'owner'): Supplier[] {
     // Supplier payment details are only for the people who pay suppliers
-    if (role === 'owner' || role === 'inventory') return this.data.suppliers;
+    if (this.can(role, 'suppliers.view')) return this.data.suppliers;
     return this.data.suppliers.map(s => ({ ...s, payment_details: '' }));
   }
 
@@ -1414,7 +1458,7 @@ class DatabaseEngine {
   // PRODUCTS & PRICING
   // =========================================================================
   public getProducts(role: StaffRole): Product[] {
-    const isOwner = role === 'owner';
+    const isOwner = this.can(role, 'costs.view');
     return this.data.products.map(p => {
       const cat = this.data.categories.find(c => c.id === p.category_id);
       const supp = this.data.suppliers.find(s => s.id === p.supplier_id);
@@ -1434,7 +1478,7 @@ class DatabaseEngine {
     if (!p) return undefined;
     const cat = this.data.categories.find(c => c.id === p.category_id);
     const supp = this.data.suppliers.find(s => s.id === p.supplier_id);
-    const isOwner = role === 'owner';
+    const isOwner = this.can(role, 'costs.view');
     return {
       ...p,
       category_name: cat?.name,
@@ -1532,8 +1576,8 @@ class DatabaseEngine {
     delete (updates as any).created_at;
     delete (updates as any).category_name;
     delete (updates as any).supplier_name;
-    // If not owner, do not allow changing wholesale cost or pricing rule
-    if (role !== 'owner') {
+    // Only roles that can see costs may change cost or pricing fields
+    if (!this.can(role, 'costs.view')) {
       delete updates.wholesale_unit_cost;
       delete updates.pricing_rule;
       delete updates.pricing_rule_percentage;
@@ -1624,7 +1668,7 @@ class DatabaseEngine {
   }
 
   public getBatchesForProduct(productId: string, role: StaffRole): PurchaseBatch[] {
-    const isOwner = role === 'owner';
+    const isOwner = this.can(role, 'costs.view');
     return this.data.purchase_batches
       .filter(b => b.product_id === productId)
       .map(b => {
@@ -1758,7 +1802,7 @@ class DatabaseEngine {
   // ORDERS (ATOMIC CREATION, STOCK DEDUCTION, DELIVERY, PAYMENTS)
   // =========================================================================
   public getOrders(role: StaffRole): Order[] {
-    const isOwner = role === 'owner';
+    const isOwner = this.can(role, 'costs.view');
     return this.data.orders
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .map(o => {

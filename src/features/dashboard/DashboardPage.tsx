@@ -64,8 +64,8 @@ export function DashboardPage() {
   const sales14 = sales.reduce((s, d) => s + d.value, 0);
 
   const m = metrics.data;
-  // Sales staff see their orders, but not shop-wide revenue
-  const showSalesChart = can.viewOrders(role) && role !== 'sales';
+  // Shop-wide revenue only for roles with "See shop sales totals"
+  const showSalesChart = can.viewOrders(role) && can.viewSales(role);
   const firstName = (staff?.full_name || '').split(/[\s(]/)[0];
 
   return (
@@ -92,12 +92,12 @@ export function DashboardPage() {
       />
 
       {/* Key figures */}
-      <div className={`grid grid-cols-2 gap-3 sm:gap-5 ${role === 'sales' ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
+      <div className={`grid grid-cols-2 gap-3 sm:gap-5 ${can.viewSales(role) ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
         {metrics.isLoading || !m ? (
-          (role === 'sales' ? [0, 1, 2] : [0, 1, 2, 3]).map(i => <Skeleton key={i} className="h-[132px] rounded-xl" />)
+          (can.viewSales(role) ? [0, 1, 2, 3] : [0, 1, 2]).map(i => <Skeleton key={i} className="h-[132px] rounded-xl" />)
         ) : (
           <>
-            {role !== 'sales' && (
+            {can.viewSales(role) && (
               <StatCard label="Recorded sales" value={formatMVR(m.recorded_sales_revenue)} hint="Product sales, delivery fees excluded" icon={<Wallet className="h-5 w-5" />} />
             )}
             {can.seeCosts(role) ? (

@@ -44,7 +44,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/products', label: 'Products', icon: Boxes, allowed: everyone, mobilePrimary: true },
       { to: '/stock', label: 'Stock ledger', icon: History, allowed: everyone },
-      { to: '/suppliers', label: 'Suppliers & couriers', icon: Truck, allowed: r => can.viewSuppliers(r) || can.manageCouriers(r) },
+      { to: '/suppliers', label: 'Suppliers & couriers', icon: Truck, allowed: r => can.viewSuppliers(r) || can.manageCatalog(r) || can.manageCouriers(r) },
     ],
   },
   {
