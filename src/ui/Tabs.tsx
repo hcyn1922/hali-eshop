@@ -76,7 +76,7 @@ export function Segmented<K extends string>({
           className={cn(
             'focus-ring flex h-10 cursor-pointer items-center gap-2 px-3.5 text-sm font-semibold transition-colors',
             i > 0 && 'border-l border-line-strong',
-            item.key === value ? 'bg-subtle text-fg' : 'bg-surface text-fg-3 hover:bg-hover'
+            item.key === value ? 'bg-primary text-on-primary' : 'bg-surface text-fg-3 hover:bg-hover hover:text-fg-2'
           )}
         >
           {item.icon}

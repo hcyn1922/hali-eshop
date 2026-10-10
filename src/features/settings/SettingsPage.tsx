@@ -161,6 +161,7 @@ function ShopTab() {
 function SetupTab() {
   const status = useStatus();
   const shop = useShopProfile();
+  const testEmail = useAction(api.sendTestEmail, { invalidate: [], success: r => r.message });
   const items = [
     {
       done: status.data?.storage === 'supabase',
@@ -174,6 +175,18 @@ function SetupTab() {
       done: Boolean(supabase),
       title: 'Password reset emails (Supabase Auth)',
       body: supabase ? 'Staff can reset their own password by email.' : 'Without it, the owner resets passwords from Staff & access.',
+    },
+    {
+      done: Boolean(status.data?.emailConfigured),
+      title: 'Owner email notifications',
+      body: status.data?.emailConfigured
+        ? `New orders, deliveries and access requests are emailed to ${status.data.notifyEmail}.`
+        : 'Add RESEND_API_KEY in Vercel to get an email for new orders, deliveries and access requests.',
+      action: status.data?.emailConfigured && (
+        <Button size="sm" className="mt-3" loading={testEmail.isPending} onClick={() => testEmail.mutate(undefined)}>
+          Send a test email
+        </Button>
+      ),
     },
     {
       done: Boolean(shop.data?.phone || shop.data?.instagram),
@@ -190,6 +203,7 @@ function SetupTab() {
             <div>
               <p className="text-sm font-semibold text-fg">{i.title}</p>
               <p className="mt-0.5 text-sm text-fg-3">{i.body}</p>
+              {'action' in i && i.action}
             </div>
           </li>
         ))}

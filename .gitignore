@@ -14,3 +14,4 @@ tmp/
 data/hali_shop_db.json
 data/*.tmp
 data/uploads/
+data/private/

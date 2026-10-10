@@ -5,7 +5,8 @@ import dotenv from 'dotenv';
 import { db, PRIMARY_OWNER_EMAIL } from './server/db.ts';
 import { StoreConflictError } from './server/store.ts';
 import { allow, extractToken, getAuth, HttpError, requireAuth } from './server/auth.ts';
-import { LOCAL_UPLOAD_DIR, saveProductImage } from './server/uploads.ts';
+import { LOCAL_UPLOAD_DIR, readPaymentSlip, savePaymentSlip, saveProductImage } from './server/uploads.ts';
+import { appUrl, emailConfigured, notificationRecipient, notifyAccessRequest, notifyDelivered, notifyNewOrder, sendTestEmail } from './server/notify.ts';
 import type { StaffRole } from './src/types/index.ts';
 
 dotenv.config();
@@ -101,6 +102,7 @@ app.post('/api/auth/register', route(async (req, res) => {
     request_note,
     auto_login: auto_login !== false,
   });
+  await notifyAccessRequest(result.staff, appUrl(req));
   res.status(201).json(result);
 }));
 
@@ -108,6 +110,7 @@ app.post('/api/staff/request-access', route(async (req, res) => {
   const { full_name, email, phone, role, password, request_note } = req.body || {};
   if (!full_name || !email) throw new HttpError(400, 'Full name and email are required to request access.');
   const created = await db.requestStaffAccess({ full_name, email, phone, role, password, request_note });
+  await notifyAccessRequest(created, appUrl(req));
   res.status(201).json(created);
 }));
 
@@ -166,7 +169,15 @@ app.get('/api/status', route((req, res) => {
     sampleLoaded: products.some(p => SAMPLE_SKUS.includes(p.sku)),
     storage: db.storageBackend,
     supabaseConfigured: db.storageBackend === 'supabase',
+    emailConfigured: emailConfigured(),
+    notifyEmail: getAuth(req).role === 'owner' ? notificationRecipient() : undefined,
   });
+}));
+
+app.post('/api/notifications/test', allow(...OWNER), route(async (req, res) => {
+  const result = await sendTestEmail(appUrl(req));
+  if (!result.ok) throw new HttpError(400, result.error || 'The test email could not be sent.');
+  res.json({ success: true, message: `Test email sent to ${notificationRecipient()}.` });
 }));
 
 app.post('/api/sample/load', allow(...OWNER), route(async (_req, res) => {
@@ -368,6 +379,7 @@ app.get('/api/orders', allow(...ORDER_PROCESSORS), route((req, res) => {
 app.post('/api/orders', allow(...ORDER_TAKERS), route(async (req, res) => {
   const { role, staffId } = getAuth(req);
   const order = await db.createOrderAtomic(req.body || {}, staffId);
+  await notifyNewOrder(visibleOrder(order.id, 'owner')!, getAuth(req).staff.full_name, appUrl(req));
   res.status(201).json(visibleOrder(order.id, role));
 }));
 
@@ -375,6 +387,7 @@ app.post('/api/orders/:id/status', allow(...ORDER_PROCESSORS), route(async (req,
   const { role, staffId } = getAuth(req);
   const { stage, deliveryInfo } = req.body || {};
   const updated = await db.updateOrderStatus(req.params.id, stage, staffId, deliveryInfo);
+  if (updated.stage === 'delivered') await notifyDelivered(visibleOrder(updated.id, 'owner')!, appUrl(req));
   res.json(visibleOrder(updated.id, role));
 }));
 
@@ -385,16 +398,36 @@ app.post('/api/orders/:id/return-stock', allow(...STOCK_MANAGERS), route(async (
 }));
 
 app.post('/api/orders/:id/payment', allow(...ORDER_TAKERS), route(async (req, res) => {
-  const { amount, paymentMethod, transactionRef, notes } = req.body || {};
+  const { amount, paymentMethod, transactionRef, notes, slip } = req.body || {};
   const payment = await db.recordPayment(
     req.params.id,
     Number(amount),
     paymentMethod,
     String(transactionRef || ''),
     String(notes || ''),
-    getAuth(req).staffId
+    getAuth(req).staffId,
+    slip && typeof slip.path === 'string' ? { path: slip.path, name: String(slip.name || ''), type: String(slip.type || '') } : undefined
   );
   res.status(201).json(payment);
+}));
+
+app.get('/api/orders/:id/payments', allow(...ORDER_PROCESSORS), route((req, res) => {
+  res.json(db.getPaymentsForOrder(req.params.id));
+}));
+
+// Bank transfer slips are private: uploaded and viewed only through these signed-in routes
+app.post('/api/uploads/slip', allow(...ORDER_TAKERS), route(async (req, res) => {
+  res.status(201).json(await savePaymentSlip(String(req.body?.data || '')));
+}));
+
+app.get('/api/payments/:id/slip', allow(...ORDER_TAKERS), route(async (req, res) => {
+  const payment = db.getPayment(req.params.id);
+  if (!payment?.slip_path) throw new HttpError(404, 'No slip attached to this payment.');
+  const file = await readPaymentSlip(payment.slip_path);
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Content-Disposition', `inline; filename="${(payment.slip_name || 'slip').replace(/[^\w.-]+/g, '_')}"`);
+  res.send(file.buffer);
 }));
 
 app.get('/api/deliveries', allow(...ORDER_PROCESSORS), route((_req, res) => {
@@ -441,6 +474,11 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     res.status(err.status).json({ error: err.message });
     return;
   }
+  // Errors from express.static and friends carry their own HTTP status (e.g. 404)
+  if (typeof err?.status === 'number' && err.status >= 400 && err.status < 600 && !err.message?.includes('Supabase')) {
+    res.status(err.status).json({ error: err.status === 404 ? 'Not found.' : err.message });
+    return;
+  }
   if (err?.type === 'entity.parse.failed') {
     res.status(400).json({ error: 'Request body is not valid JSON.' });
     return;
@@ -479,6 +517,15 @@ async function startServer() {
   const HOST = getHost();
 
   if (process.env.NODE_ENV !== 'production') {
+    // The Vite dev server serves files from the project folder: never let it hand out
+    // the local database, private slips, server code or environment files.
+    app.use((req, res, next) => {
+      if (/^\/(data|server|supabase|\.env|\.git|\.vercel)(\/|$|\.)/i.test(decodeURIComponent(req.path))) {
+        res.status(404).end();
+        return;
+      }
+      next();
+    });
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: false, watch: null },

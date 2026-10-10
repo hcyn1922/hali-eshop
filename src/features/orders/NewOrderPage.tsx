@@ -28,6 +28,7 @@ export function NewOrderPage() {
   const [buyer, setBuyer] = useState<Buyer | null>(null);
   const [newBuyer, setNewBuyer] = useState<{ name: string; phone: string; instagram_handle: string } | null>(null);
   const [channel, setChannel] = useState<OrderChannel>('instagram');
+  const [channelDetail, setChannelDetail] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
   const [address, setAddress] = useState<AddressValue>({ delivery_address: '' });
   const [addressKey, setAddressKey] = useState(0);
@@ -121,6 +122,7 @@ export function NewOrderPage() {
       boat_jetty: b.boat_jetty,
       atoll_code: b.atoll_code,
       island_name: b.island_name,
+      location_link: b.location_link,
     });
     setAddressKey(k => k + 1);
   };
@@ -163,6 +165,7 @@ export function NewOrderPage() {
       const order: Order = await api.createOrder({
         buyer_id: buyerId!,
         channel,
+        channel_detail: channel === 'other' ? channelDetail.trim() : undefined,
         delivery_fee: fee,
         payment_method: paymentMethod,
         payment_status: received >= total && total > 0 ? 'paid' : received > 0 ? 'partially_paid' : 'unpaid',
@@ -263,6 +266,17 @@ export function NewOrderPage() {
                     onChange={setChannel}
                   />
                 </div>
+                {channel === 'other' && (
+                  <Input
+                    containerClassName="mt-3 sm:max-w-sm"
+                    label="Where did it come from?"
+                    value={channelDetail}
+                    maxLength={60}
+                    onChange={e => setChannelDetail(e.target.value)}
+                    placeholder="e.g. TikTok, phone call, Facebook"
+                    autoFocus
+                  />
+                )}
               </div>
             </div>
           </Card>

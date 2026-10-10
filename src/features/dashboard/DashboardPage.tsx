@@ -64,6 +64,8 @@ export function DashboardPage() {
   const sales14 = sales.reduce((s, d) => s + d.value, 0);
 
   const m = metrics.data;
+  // Sales staff see their orders, but not shop-wide revenue
+  const showSalesChart = can.viewOrders(role) && role !== 'sales';
   const firstName = (staff?.full_name || '').split(/[\s(]/)[0];
 
   return (
@@ -90,12 +92,14 @@ export function DashboardPage() {
       />
 
       {/* Key figures */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-5 xl:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-3 sm:gap-5 ${role === 'sales' ? 'xl:grid-cols-3' : 'xl:grid-cols-4'}`}>
         {metrics.isLoading || !m ? (
-          [0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[132px] rounded-xl" />)
+          (role === 'sales' ? [0, 1, 2] : [0, 1, 2, 3]).map(i => <Skeleton key={i} className="h-[132px] rounded-xl" />)
         ) : (
           <>
-            <StatCard label="Recorded sales" value={formatMVR(m.recorded_sales_revenue)} hint="Product sales, delivery fees excluded" icon={<Wallet className="h-5 w-5" />} />
+            {role !== 'sales' && (
+              <StatCard label="Recorded sales" value={formatMVR(m.recorded_sales_revenue)} hint="Product sales, delivery fees excluded" icon={<Wallet className="h-5 w-5" />} />
+            )}
             {can.seeCosts(role) ? (
               <StatCard
                 label="Gross profit"
@@ -126,7 +130,7 @@ export function DashboardPage() {
 
       <div className="mt-5 grid gap-5 xl:grid-cols-3">
         {/* Sales trend */}
-        {can.viewOrders(role) && (
+        {showSalesChart && (
           <Card className="xl:col-span-2">
             <CardHeader title="Sales, last 14 days" description={`${formatMVR(sales14)} in product sales`} />
             <div className="px-5 pb-4 pt-6">
@@ -140,7 +144,7 @@ export function DashboardPage() {
         )}
 
         {/* Needs attention */}
-        <Card className={can.viewOrders(role) ? '' : 'xl:col-span-3'}>
+        <Card className={showSalesChart ? '' : 'xl:col-span-3'}>
           <CardHeader title="Needs attention" description="Stock and orders to follow up" />
           <ul className="divide-y divide-line">
             {attention.slice(0, 4).map(o => (

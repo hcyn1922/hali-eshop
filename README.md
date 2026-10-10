@@ -19,6 +19,7 @@ Works on computers and phones (installable-feeling mobile layout with a bottom t
 | **Suppliers & couriers** | Suppliers, categories and courier services with their usual charges. |
 | **Social posts** | Plan posts per product with caption, image, date, status and the live link. |
 | **Staff & access** (owner) | Add staff, approve sign-up requests, change roles, reset passwords, deactivate or delete accounts. |
+| **Owner emails** | The owner gets an email for every new order, every delivered order and every new staff access request. |
 
 ### Money rules
 
@@ -98,7 +99,15 @@ The code lives in the private repository **hcyn1922/hali-eshop**. Vercel deploys
 3. Click **Deploy**. Open the site, sign in as the owner, then go to **Settings → Setup** to check everything is green and **Settings → Shop details** to fill in the invoice details.
 4. Optional: **Project → Settings → Domains** to add a custom domain such as `orders.hali.mv`, then add the CNAME record it shows at your domain registrar.
 
-### 4. Add your team
+### 4. Turn on owner email notifications (optional)
+
+1. Create a free account at <https://resend.com> **using the same email as `HALI_OWNER_EMAIL`** (Resend's test sender can only deliver to that address until you verify a domain).
+2. Go to **API Keys → Create API key** (permission: *Sending access*) and copy the key.
+3. In Vercel → **Settings → Environment Variables** add `RESEND_API_KEY` with that key, then **Redeploy**.
+4. In the app, open **Settings → Setup** and click **Send a test email**.
+5. Later, to send from your own address (e.g. `orders@hali.mv`) or to another inbox, verify your domain in Resend → **Domains**, then set `MAIL_FROM` (and `NOTIFY_EMAIL` if it should go elsewhere).
+
+### 5. Add your team
 
 In **Staff & access → Add staff**, enter each person's name, email and role, and either give them a starting password or invite the same email from Supabase (**Authentication → Users → Invite user**). People can also use **Request access** on the sign-in page; you approve them on the **Requests** tab.
 
@@ -109,6 +118,8 @@ In **Staff & access → Add staff**, enter each person's name, email and role, a
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, React Router and TanStack Query. Design follows the Untitled UI system in the Hali brand colours (navy `#0F1736`, coral `#EB3A41`).
 - **Server:** Express (`server.ts`) runs as one Vercel function (`api/index.ts`). All business rules (stock checks, order transitions, cost redaction, role checks) live in `server/db.ts` and `server/auth.ts`.
 - **Storage:** the whole shop database is one versioned JSON document. Locally it is a file; in production it is the Supabase `app_state` row. Each save is a compare-and-swap on the version number, so two simultaneous changes can never overwrite each other (the second gets "please retry"). Product photos go to Supabase Storage.
+- **Privacy:** bank transfer slips are stored in a **private** bucket and only streamed to signed-in owner/sales staff. Invoices strip every web address before they are rendered, and map pin links are kept separate from the printed address.
+- **SKUs:** assigned automatically as a running number (`H0001`, `H0002`, …) and never change.
 - **Sign-in:** shop passwords (scrypt-hashed, sessions stored server-side) or Supabase Auth. Either way the role comes from the staff profile on the server.
 
 ### Addresses without Google

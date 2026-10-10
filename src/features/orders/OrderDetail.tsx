@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Circle, FileText, MapPin, MoreHorizontal, Phone, Ship } from 'lucide-react';
+import { CheckCircle2, Circle, FileText, MapPin, MoreHorizontal, Navigation, Paperclip, Phone, Ship } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../../lib/api';
 import { useAuth } from '../../app/auth';
 import { can } from '../../app/permissions';
 import { formatMVR, formatMaldivesDateTime } from '../../lib/formatters';
@@ -38,6 +40,54 @@ function Timeline({ order }: { order: Order }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Payments recorded against the order, with private transfer slips opened on demand. */
+function PaymentsSection({ orderId }: { orderId: string }) {
+  const { role } = useAuth();
+  const payments = useQuery({ queryKey: ['payments', orderId], queryFn: () => api.getPayments(orderId) });
+  const [opening, setOpening] = useState<string | null>(null);
+  const openSlip = async (paymentId: string) => {
+    setOpening(paymentId);
+    // Open the tab first (pop-up blockers), then load the slip with the staff session
+    const win = window.open('', '_blank');
+    try {
+      const blob = await api.getSlip(paymentId);
+      const url = URL.createObjectURL(blob);
+      if (win) win.location.href = url;
+      else window.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      win?.close();
+    } finally {
+      setOpening(null);
+    }
+  };
+  if (!payments.data?.length) return null;
+  return (
+    <Section title="Payments">
+      <ul className="divide-y divide-line rounded-lg border border-line">
+        {payments.data.map(p => (
+          <li key={p.id} className="flex items-start justify-between gap-3 px-3.5 py-3 text-sm">
+            <div className="min-w-0">
+              <p className="font-medium text-fg">
+                {formatMVR(p.amount)} · {PAYMENT_METHODS[p.payment_method]}
+              </p>
+              <p className="text-fg-3">
+                {formatMaldivesDateTime(p.created_at)} · {p.recorded_by_name}
+                {p.transaction_reference && p.transaction_reference !== 'Initial Payment' ? ` · Ref ${p.transaction_reference}` : ''}
+              </p>
+            </div>
+            {p.slip_path && can.recordPayments(role) && (
+              <Button size="sm" icon={<Paperclip className="h-4 w-4" />} loading={opening === p.id} onClick={() => openSlip(p.id)}>
+                Slip
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 
@@ -86,7 +136,8 @@ export function OrderDetail({ order, onClose }: { order: Order; onClose: () => v
             </Badge>
             <Badge color={PAYMENT_STATUS[order.payment_status].color}>{PAYMENT_STATUS[order.payment_status].label}</Badge>
             <span>
-              {CHANNELS[order.channel]} · {formatMaldivesDateTime(order.order_date || order.created_at)}
+              {order.channel === 'other' && order.channel_detail ? `Other (${order.channel_detail})` : CHANNELS[order.channel]} ·{' '}
+              {formatMaldivesDateTime(order.order_date || order.created_at)}
             </span>
           </span>
         }
@@ -133,6 +184,16 @@ export function OrderDetail({ order, onClose }: { order: Order; onClose: () => v
                 <span className="inline-flex items-start gap-2">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0" /> <span className="break-words">{order.buyer_address}</span>
                 </span>
+              )}
+              {order.location_link && (
+                <a
+                  href={order.location_link}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="inline-flex w-fit items-center gap-2 font-semibold text-fg-2 hover:text-fg"
+                >
+                  <Navigation className="h-4 w-4" /> Open map pin
+                </a>
               )}
               {order.boat_name && (
                 <span className="inline-flex items-start gap-2">
@@ -184,6 +245,8 @@ export function OrderDetail({ order, onClose }: { order: Order; onClose: () => v
               )}
             </dl>
           </Section>
+
+          {(order.amount_received || 0) > 0 && <PaymentsSection orderId={order.id} />}
 
           <Section title="Delivery">
             <Timeline order={order} />

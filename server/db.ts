@@ -74,7 +74,13 @@ const SEED_FILE = path.resolve(process.cwd(), 'data', 'seed.json');
 
 const MIN_PASSWORD_LENGTH = 8;
 
-const ORDER_CHANNELS: Order['channel'][] = ['instagram', 'viber', 'whatsapp', 'sms', 'direct'];
+const ORDER_CHANNELS: Order['channel'][] = ['instagram', 'viber', 'whatsapp', 'sms', 'direct', 'other'];
+
+/** Accept only plain http(s) links for map pins. */
+function cleanLink(value?: string): string | undefined {
+  const v = (value || '').trim();
+  return /^https?:\/\/\S+$/i.test(v) ? v.slice(0, 500) : undefined;
+}
 const PAYMENT_METHODS: Order['payment_method'][] = ['bank_transfer', 'cash'];
 
 /**
@@ -708,7 +714,8 @@ class DatabaseEngine {
     }
 
     return {
-      recorded_sales_revenue: Number(recordedSales.toFixed(2)),
+      // Sales staff don't see shop-wide revenue
+      recorded_sales_revenue: role === 'sales' ? 0 : Number(recordedSales.toFixed(2)),
       orders_in_progress: inProgressCount,
       available_stock_count: availableStockCount,
       low_stock_count: lowStockCount,
@@ -797,6 +804,21 @@ class DatabaseEngine {
    * A first-time sign-in creates an access request the owner has to approve
    * (unless open registration is on). Roles are never taken from the identity provider.
    */
+  /** Creates a profile for a first-time Supabase sign-in. Returns it only when newly created. */
+  public async ensureExternalProfile(identity: { email: string; full_name?: string; phone?: string; requested_role?: string }): Promise<StaffProfile | null> {
+    const email = identity.email.trim().toLowerCase();
+    if (this.data.staff_profiles.some(s => s.email.toLowerCase() === email)) return null;
+    const staff = this.buildRegistration({
+      full_name: identity.full_name || email.split('@')[0],
+      email,
+      phone: identity.phone,
+      role: identity.requested_role as StaffRole | undefined,
+    });
+    this.data.staff_profiles.push(staff);
+    await this.persist();
+    return { ...staff };
+  }
+
   public async resolveExternalIdentity(identity: {
     email: string;
     full_name?: string;
@@ -1400,16 +1422,23 @@ class DatabaseEngine {
     };
   }
 
+  /** Next running SKU in the H0001 format (continues after the highest existing H-number). */
+  public nextSku(): string {
+    const highest = this.data.products.reduce((max, p) => {
+      const m = /^H(\d+)$/i.exec(p.sku || '');
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0);
+    return `H${String(highest + 1).padStart(4, '0')}`;
+  }
+
   public async createProduct(
     product: Omit<Product, 'id' | 'created_at' | 'available_stock'>,
     openingStock: number,
     staffId: string
   ): Promise<Product> {
-    if (!product.name.trim()) throw new Error('Product name is required.');
-    if (!product.sku.trim()) throw new Error('SKU is required.');
-    if (this.data.products.some(p => p.sku.toLowerCase() === product.sku.trim().toLowerCase())) {
-      throw new Error(`A product with SKU "${product.sku}" already exists.`);
-    }
+    if (!(product.name || '').trim()) throw new Error('Product name is required.');
+    // SKUs are always assigned by the server as a running number: H0001, H0002, …
+    product = { ...product, sku: this.nextSku() };
     if (!(Number(product.wholesale_unit_cost) >= 0) || !(Number(product.actual_listed_price) >= 0)) {
       throw new Error('Costs and prices must be zero or more.');
     }
@@ -1487,14 +1516,8 @@ class DatabaseEngine {
       delete updates.pricing_rule;
       delete updates.pricing_rule_percentage;
     }
-    if (updates.sku !== undefined) {
-      const sku = String(updates.sku).trim();
-      if (!sku) throw new Error('SKU is required.');
-      if (this.data.products.some(p => p.id !== id && p.sku.toLowerCase() === sku.toLowerCase())) {
-        throw new Error(`A product with SKU "${sku}" already exists.`);
-      }
-      updates.sku = sku;
-    }
+    // SKUs are permanent once assigned
+    delete updates.sku;
     for (const field of ['wholesale_unit_cost', 'actual_listed_price', 'suggested_price', 'low_stock_threshold'] as const) {
       if (updates[field] !== undefined) {
         const value = Number(updates[field]);
@@ -1670,6 +1693,7 @@ class DatabaseEngine {
 
     const newBuyer: Buyer = {
       ...buyer,
+      location_link: cleanLink(buyer.location_link),
       id: crypto.randomUUID(),
       created_at: new Date().toISOString(),
     };
@@ -1681,6 +1705,7 @@ class DatabaseEngine {
   public async updateBuyer(id: string, updates: Partial<Buyer>): Promise<Buyer> {
     const index = this.data.buyers.findIndex(b => b.id === id);
     if (index === -1) throw new Error('Buyer not found.');
+    if (updates.location_link !== undefined) updates = { ...updates, location_link: cleanLink(updates.location_link) };
     const updated = {
       ...this.data.buyers[index],
       ...updates,
@@ -1753,6 +1778,8 @@ class DatabaseEngine {
     atoll_code?: string;
     island_name?: string;
     hulhumale_lot?: string;
+    location_link?: string;
+    channel_detail?: string;
     delivery_person_id?: string;
     delivery_person_name?: string;
     delivery_person_phone?: string;
@@ -1887,6 +1914,7 @@ class DatabaseEngine {
       if (data.boat_jetty) buyer.boat_jetty = data.boat_jetty;
       if (data.atoll_code) buyer.atoll_code = data.atoll_code;
       if (data.island_name) buyer.island_name = data.island_name;
+      if (cleanLink(data.location_link)) buyer.location_link = cleanLink(data.location_link);
     }
 
     const newOrder: Order = {
@@ -1900,6 +1928,8 @@ class DatabaseEngine {
       atoll_code: data.atoll_code?.trim() || undefined,
       island_name: data.island_name?.trim() || undefined,
       hulhumale_lot: data.hulhumale_lot?.trim() || undefined,
+      location_link: cleanLink(data.location_link),
+      channel_detail: data.channel === 'other' ? (data.channel_detail || '').trim().slice(0, 60) || undefined : undefined,
       order_date: now,
       channel: data.channel,
       stage: 'new',
@@ -2057,7 +2087,8 @@ class DatabaseEngine {
     paymentMethod: Order['payment_method'],
     transactionRef: string,
     notes: string,
-    staffId: string
+    staffId: string,
+    slip?: { path: string; name?: string; type?: string }
   ): Promise<PaymentRecord> {
     const order = this.data.orders.find(o => o.id === orderId);
     if (!order) throw new Error('Order not found.');
@@ -2077,6 +2108,12 @@ class DatabaseEngine {
       recorded_by_staff_id: staffId,
       created_at: now,
     };
+    if (slip?.path) {
+      if (!/^slips\/[0-9a-f-]{36}\.(jpg|png|webp|pdf)$/.test(slip.path)) throw new Error('The attached slip is not valid. Please attach it again.');
+      payment.slip_path = slip.path;
+      payment.slip_name = (slip.name || 'transfer-slip').slice(0, 120);
+      payment.slip_type = slip.type;
+    }
     this.data.payments.push(payment);
 
     order.amount_received = (order.amount_received || 0) + amount;
@@ -2092,7 +2129,18 @@ class DatabaseEngine {
   }
 
   public getPaymentsForOrder(orderId: string): PaymentRecord[] {
-    return this.data.payments.filter(p => p.order_id === orderId);
+    return this.data.payments
+      .filter(p => p.order_id === orderId)
+      .map(p => ({ ...p, recorded_by_name: this.data.staff_profiles.find(s => s.id === p.recorded_by_staff_id)?.full_name || 'Staff' }))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+
+  public getPayment(paymentId: string): PaymentRecord | undefined {
+    return this.data.payments.find(p => p.id === paymentId);
+  }
+
+  public getOwnerEmail(): string {
+    return PRIMARY_OWNER_EMAIL;
   }
 
   public getDeliveryHandovers(): DeliveryHandover[] {

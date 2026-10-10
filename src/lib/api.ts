@@ -125,6 +125,8 @@ type OrderCreateInput = {
   atoll_code?: string;
   island_name?: string;
   hulhumale_lot?: string;
+  location_link?: string;
+  channel_detail?: string;
   delivery_person_id?: string;
   delivery_person_name?: string;
   delivery_person_phone?: string;
@@ -156,7 +158,15 @@ export const api = {
 
   // System Status & Sample
   getStatus: () =>
-    request<{ status: string; productsCount: number; sampleLoaded: boolean; storage: string; supabaseConfigured: boolean }>(
+    request<{
+      status: string;
+      productsCount: number;
+      sampleLoaded: boolean;
+      storage: string;
+      supabaseConfigured: boolean;
+      emailConfigured: boolean;
+      notifyEmail?: string;
+    }>(
       '/api/status'
     ),
   loadSampleInventory: () => request<{ message: string; success: boolean }>('/api/sample/load', post()),
@@ -240,8 +250,26 @@ export const api = {
   ) => request<Order>(`/api/orders/${id}/status`, post({ stage, deliveryInfo })),
   returnOrderStock: (id: string, reason: string) =>
     request<{ success: boolean; message: string }>(`/api/orders/${id}/return-stock`, post({ reason })),
-  recordPayment: (id: string, data: { amount: number; paymentMethod: Order['payment_method']; transactionRef?: string; notes?: string }) =>
-    request<PaymentRecord>(`/api/orders/${id}/payment`, post(data)),
+  recordPayment: (
+    id: string,
+    data: {
+      amount: number;
+      paymentMethod: Order['payment_method'];
+      transactionRef?: string;
+      notes?: string;
+      slip?: { path: string; name: string; type: string };
+    }
+  ) => request<PaymentRecord>(`/api/orders/${id}/payment`, post(data)),
+  getPayments: (orderId: string) => request<PaymentRecord[]>(`/api/orders/${orderId}/payments`),
+  uploadSlip: (dataUrl: string) => request<{ path: string; type: string }>('/api/uploads/slip', post({ data: dataUrl })),
+  /** Downloads a private payment slip with the staff member's session. */
+  getSlip: async (paymentId: string): Promise<Blob> => {
+    const token = await freshToken();
+    const res = await fetch(`/api/payments/${paymentId}/slip`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new ApiError(res.status, 'Could not open the slip.');
+    return res.blob();
+  },
+  sendTestEmail: () => request<{ success: boolean; message: string }>('/api/notifications/test', post()),
 
   // Deliveries
   getDeliveries: () => request<DeliveryHandover[]>('/api/deliveries'),

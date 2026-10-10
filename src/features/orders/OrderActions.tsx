@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Download, PackageCheck, Printer, Share2, Truck, Wallet } from 'lucide-react';
+import { Download, FileText, PackageCheck, Paperclip, Printer, Share2, Trash2, Truck, Wallet } from 'lucide-react';
 import { api } from '../../lib/api';
 import { formatMVR } from '../../lib/formatters';
 import { renderInvoice } from '../../lib/invoice';
@@ -69,10 +69,31 @@ export function PaymentModal({ order, open, onClose }: { order: Order; open: boo
   const [method, setMethod] = useState<PaymentMethod>(order.payment_method || 'bank_transfer');
   const [reference, setReference] = useState('');
   const [notes, setNotes] = useState('');
+  const [slip, setSlip] = useState<File | null>(null);
+  const toast = useToast();
   const action = useAction(
-    () => api.recordPayment(order.id, { amount: Number(amount), paymentMethod: method, transactionRef: reference.trim(), notes: notes.trim() }),
-    { invalidate: ORDER_KEYS, success: p => `Payment of ${formatMVR(p.amount)} recorded.`, onSuccess: onClose }
+    async () => {
+      let attached: { path: string; name: string; type: string } | undefined;
+      if (slip) {
+        const uploaded = await api.uploadSlip(await slipToDataUrl(slip));
+        attached = { ...uploaded, name: slip.name };
+      }
+      return api.recordPayment(order.id, {
+        amount: Number(amount),
+        paymentMethod: method,
+        transactionRef: reference.trim(),
+        notes: notes.trim(),
+        slip: attached,
+      });
+    },
+    { invalidate: [...ORDER_KEYS, ['payments', order.id]], success: p => `Payment of ${formatMVR(p.amount)} recorded${p.slip_path ? ' with the slip' : ''}.`, onSuccess: onClose }
   );
+  const pickSlip = (file: File | undefined) => {
+    if (!file) return;
+    if (!/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(file.type)) return toast('Attach a photo, screenshot or PDF of the slip.', 'error');
+    if (file.type === 'application/pdf' && file.size > 5 * 1024 * 1024) return toast('PDF slips must be 5 MB or smaller.', 'error');
+    setSlip(file);
+  };
 
   return (
     <Modal
@@ -116,10 +137,55 @@ export function PaymentModal({ order, open, onClose }: { order: Order; open: boo
           onChange={e => setReference(e.target.value)}
           placeholder={method === 'bank_transfer' ? 'e.g. BML transaction reference' : 'Optional'}
         />
+        <div className="sm:col-span-2">
+          <p className="mb-1.5 text-sm font-medium text-fg-2">Transfer slip</p>
+          {slip ? (
+            <div className="flex items-center gap-3 rounded-lg border border-line p-3">
+              <FileText className="h-5 w-5 shrink-0 text-fg-4" />
+              <span className="min-w-0 flex-1 truncate text-sm text-fg-2">{slip.name}</span>
+              <Button size="sm" variant="tertiary" iconOnly icon={<Trash2 className="h-4 w-4" />} onClick={() => setSlip(null)}>
+                Remove slip
+              </Button>
+            </div>
+          ) : (
+            <label className="focus-within:ring-ring flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-line-strong px-4 py-4 text-sm font-semibold text-fg-3 hover:bg-hover">
+              <Paperclip className="h-4 w-4" /> Attach slip (photo, screenshot or PDF)
+              <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only" onChange={e => pickSlip(e.target.files?.[0])} />
+            </label>
+          )}
+          <p className="mt-1.5 text-sm text-fg-4">Stored privately; only staff who handle payments can open it.</p>
+        </div>
         <Textarea label="Notes" containerClassName="sm:col-span-2" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
       </div>
     </Modal>
   );
+}
+
+/** Photos are shrunk to keep uploads quick; PDFs are sent as they are. */
+function slipToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the slip.'));
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      if (file.type === 'application/pdf') return resolve(dataUrl);
+      const img = new Image();
+      img.onerror = () => reject(new Error('That slip image could not be read.'));
+      img.onload = () => {
+        const scale = Math.min(1, 2000 / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.88));
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export function ReturnStockModal({ order, open, onClose }: { order: Order; open: boolean; onClose: () => void }) {

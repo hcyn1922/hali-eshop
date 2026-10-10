@@ -22,6 +22,17 @@ function loadImage(src: string): Promise<HTMLImageElement | null> {
   });
 }
 
+/** Removes any web address (and a dangling "Map:" label) so invoices never show links. */
+export function stripUrls(text: string | undefined, bareDomains = true): string {
+  let out = (text || '').replace(/\b(?:https?:\/\/|www\.)\S+/gi, '');
+  if (bareDomains) out = out.replace(/\b[\w-]+\.(?:com|net|org|mv|app|io|co|page|link|ly|me)(?:\/\S*)?/gi, '');
+  return out
+    .replace(/\bMap:\s*/gi, '')
+    .replace(/\s*,\s*(,\s*)+/g, ', ')
+    .replace(/(^[\s,·]+|[\s,·]+$)/g, '')
+    .replace(/\s{2,}/g, ' ');
+}
+
 function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
   const lines: string[] = [];
   for (const para of (text || '').split('\n')) {
@@ -41,8 +52,20 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): st
 }
 
 /** Draws a clean, shareable invoice for an order and returns it as a JPEG blob. */
-export async function renderInvoice(order: Order, shop: ShopProfile): Promise<Blob> {
+export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Promise<Blob> {
   await document.fonts?.ready;
+  // Customers receive this image: strip every web address from the text we print
+  const shop: ShopProfile = Object.fromEntries(
+    Object.entries(rawShop).map(([k, v]) => [k, k === 'email' ? String(v || '') : stripUrls(String(v || ''), k !== 'instagram')])
+  ) as unknown as ShopProfile;
+  const order: Order = {
+    ...rawOrder,
+    buyer_name: stripUrls(rawOrder.buyer_name),
+    buyer_address: stripUrls(rawOrder.buyer_address),
+    buyer_instagram: stripUrls(rawOrder.buyer_instagram, false),
+    delivery_person_name: stripUrls(rawOrder.delivery_person_name),
+    items: rawOrder.items.map(i => ({ ...i, product_name: stripUrls(i.product_name) })),
+  };
   const mark = await loadImage('/brand/hali-mark.svg');
 
   const W = 1000;

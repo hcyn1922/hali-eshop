@@ -13,6 +13,8 @@ export interface AddressValue {
   atoll_code?: string;
   island_name?: string;
   hulhumale_lot?: string;
+  /** Map pin for the courier. Kept apart from the address so it never prints for customers. */
+  location_link?: string;
 }
 
 type Mode = 'saved' | 'male' | 'hulhumale' | 'vilimale' | 'island';
@@ -62,7 +64,7 @@ export function AddressFields({
     boatPhone: value.boat_phone || '',
     jetty: value.boat_jetty || '',
     landmark: '',
-    mapLink: '',
+    mapLink: value.location_link || '',
   });
   const set = (k: keyof typeof parts) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setParts(p => ({ ...p, [k]: e.target.value }));
@@ -80,9 +82,9 @@ export function AddressFields({
   useEffect(() => {
     if (mode === 'saved') return;
     const join = (...xs: string[]) => xs.map(x => x.trim()).filter(Boolean).join(', ');
-    const extra = join(parts.landmark ? `Near ${parts.landmark}` : '', parts.mapLink ? `Map: ${parts.mapLink}` : '');
+    const extra = parts.landmark ? `Near ${parts.landmark.trim()}` : '';
     let address = '';
-    const next: AddressValue = { delivery_address: '' };
+    const next: AddressValue = { delivery_address: '', location_link: parts.mapLink.trim() || undefined };
     if (mode === 'male') {
       address = join(parts.unit, parts.house, parts.street, parts.district, 'Malé');
     } else if (mode === 'hulhumale') {
@@ -144,6 +146,15 @@ export function AddressFields({
             value={value.delivery_address}
             onChange={e => onChange({ ...value, delivery_address: e.target.value })}
             placeholder="House, street, area"
+          />
+          <Input
+            label="Map pin link"
+            type="url"
+            value={value.location_link || ''}
+            onChange={e => onChange({ ...value, location_link: e.target.value || undefined })}
+            placeholder="Paste a Google Maps or WhatsApp location link"
+            leading={<MapPin className="h-4 w-4" />}
+            hint="For the courier only. Never shown on invoices."
           />
         </>
       )}
@@ -227,6 +238,7 @@ export function AddressFields({
               onChange={set('mapLink')}
               placeholder="Paste a Google Maps or WhatsApp location link"
               leading={<MapPin className="h-4 w-4" />}
+              hint="For the courier only. Never shown on invoices."
             />
           </div>
           <div className="rounded-lg border border-line bg-subtle px-3.5 py-3 text-sm">

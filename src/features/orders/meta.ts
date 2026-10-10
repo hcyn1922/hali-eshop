@@ -26,6 +26,7 @@ export const CHANNELS: Record<OrderChannel, string> = {
   whatsapp: 'WhatsApp',
   sms: 'SMS',
   direct: 'Walk-in / direct',
+  other: 'Other',
 };
 
 export const PAYMENT_METHODS: Record<PaymentMethod, string> = {

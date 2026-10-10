@@ -176,13 +176,14 @@ export interface Buyer {
   boat_jetty?: string;
   atoll_code?: string;
   island_name?: string;
+  location_link?: string;
   notes?: string;
   orders_count?: number;
   total_spent?: number;
   created_at: string;
 }
 
-export type OrderChannel = 'instagram' | 'viber' | 'whatsapp' | 'sms' | 'direct';
+export type OrderChannel = 'instagram' | 'viber' | 'whatsapp' | 'sms' | 'direct' | 'other';
 export type OrderStage = 'new' | 'packed' | 'handed_over' | 'delivered' | 'failed' | 'cancelled' | 'returned';
 export type PaymentMethod = 'bank_transfer' | 'cash';
 export type PaymentStatus = 'unpaid' | 'partially_paid' | 'paid';
@@ -216,6 +217,10 @@ export interface Order {
   hulhumale_lot?: string;
   order_date: string;
   channel: OrderChannel;
+  /** Free text when channel is "other" (e.g. TikTok, phone call). */
+  channel_detail?: string;
+  /** Map pin link for the courier. Staff only; never printed for customers. */
+  location_link?: string;
   stage: OrderStage;
   subtotal_amount: number;
   delivery_fee: number;
@@ -263,6 +268,10 @@ export interface PaymentRecord {
   payment_method: PaymentMethod;
   transaction_reference?: string;
   receipt_notes?: string;
+  /** Private storage path of the attached transfer slip (served only through the API). */
+  slip_path?: string;
+  slip_name?: string;
+  slip_type?: string;
   recorded_by_staff_id: string;
   recorded_by_name?: string;
   created_at: string;

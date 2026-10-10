@@ -1,6 +1,7 @@
 import type express from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { db } from './db.ts';
+import { appUrl, notifyAccessRequest } from './notify.ts';
 import type { StaffProfile, StaffRole } from '../src/types/index.ts';
 import { resolveSupabaseConfig } from '../src/lib/supabaseConfig.ts';
 
@@ -96,6 +97,8 @@ export async function resolveAuth(req: express.Request): Promise<AuthContext> {
   const identity = await verifySupabaseAccessToken(token);
   if (!identity) throw new HttpError(401, 'Your session has expired. Please sign in again.');
 
+  const created = await db.ensureExternalProfile(identity);
+  if (created) await notifyAccessRequest(created, appUrl(req));
   try {
     const resolved = await db.resolveExternalIdentity(identity);
     return { staff: resolved.staff, role: resolved.role, staffId: resolved.staff.id, token };

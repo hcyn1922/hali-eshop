@@ -40,6 +40,16 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
+  // Preview of the next running SKU (the server assigns the final one)
+  const allProducts = useProducts();
+  const nextSku = useMemo(() => {
+    const highest = (allProducts.data || []).reduce((max, p) => {
+      const m = /^H(\d+)$/i.exec(p.sku || '');
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0);
+    return `H${String(highest + 1).padStart(4, '0')}`;
+  }, [allProducts.data]);
+
   const suggested = useMemo(
     () => calculateSuggestedPrice(Number(form.cost) || 0, Number(form.percentage) || 0, form.rule),
     [form.cost, form.percentage, form.rule]
@@ -57,7 +67,6 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
       const price = form.price === '' ? suggested : Number(form.price);
       const body: Partial<Product> & { openingStock?: number } = {
         name: form.name.trim(),
-        sku: form.sku.trim(),
         category_id: categoryId,
         supplier_id: form.supplier_id,
         description: form.description.trim(),
@@ -106,7 +115,13 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
       <form id="product-form" onSubmit={submit} className="flex flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Input label="Product name" required value={form.name} onChange={set('name')} containerClassName="sm:col-span-2" />
-          <Input label="SKU" required value={form.sku} onChange={set('sku')} placeholder="e.g. HALI-PRF-001" />
+          <Input
+            label="SKU"
+            value={product ? product.sku : nextSku}
+            readOnly
+            disabled
+            hint={product ? 'SKUs never change.' : 'Assigned automatically when you save.'}
+          />
           <Select label="Category" value={form.category_id} onChange={set('category_id')}>
             <option value="">Uncategorised</option>
             {(categories.data || []).map(c => (
