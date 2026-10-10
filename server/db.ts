@@ -163,6 +163,26 @@ interface DatabaseSchema {
   auth_settings?: AuthSettings;
   password_reset_codes?: PasswordResetCode[];
   shop_profile?: ShopProfile;
+  ai_photo_log?: AiPhotoLogEntry[];
+}
+
+/** One AI studio photo run, kept for the daily limit and to see who used it. */
+export interface AiPhotoLogEntry {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  product_name: string;
+  model: string;
+  photos_requested: number;
+  photos_made: number;
+  status: 'running' | 'done' | 'failed';
+  created_at: string;
+  finished_at?: string;
+}
+
+/** Calendar day in the Maldives (UTC+5), used for the daily AI photo limit. */
+function maldivesDay(iso: string): string {
+  return new Date(new Date(iso).getTime() + 5 * 3600_000).toISOString().slice(0, 10);
 }
 
 const DEFAULT_AUTH_SETTINGS: AuthSettings = {
@@ -283,6 +303,7 @@ class DatabaseEngine {
       auth_sessions: [],
       auth_settings: { ...DEFAULT_AUTH_SETTINGS },
       password_reset_codes: [],
+      ai_photo_log: [],
     };
   }
 
@@ -320,6 +341,7 @@ class DatabaseEngine {
       auth_sessions: parsed.auth_sessions || [],
       auth_settings: { ...DEFAULT_AUTH_SETTINGS, ...(parsed.auth_settings || {}) },
       password_reset_codes: parsed.password_reset_codes || [],
+      ai_photo_log: parsed.ai_photo_log || [],
     } as DatabaseSchema;
     this.ensureBootstrapAccounts(merged);
     return merged;
@@ -2193,6 +2215,63 @@ class DatabaseEngine {
     this.data.social_posts[index] = updated;
     await this.persist();
     return updated;
+  }
+
+  // =========================================================================
+  // AI STUDIO PHOTOS (usage log + daily limit)
+  // =========================================================================
+  /** Photos this staff member has generated today (Maldives time), counting runs in progress. */
+  public aiPhotosUsedToday(staffId: string): number {
+    const today = maldivesDay(new Date().toISOString());
+    return (this.data.ai_photo_log || [])
+      .filter(e => e.staff_id === staffId && maldivesDay(e.created_at) === today)
+      .reduce((sum, e) => {
+        // A run that never finished (e.g. the server timed out) stops counting after 15 minutes
+        const stillRunning = e.status === 'running' && Date.now() - new Date(e.created_at).getTime() < 15 * 60_000;
+        return sum + (stillRunning ? e.photos_requested : e.photos_made);
+      }, 0);
+  }
+
+  /** Records the start of a run, refusing it if it would go over the daily limit. */
+  public async startAiPhotoRun(
+    staff: StaffProfile,
+    data: { product_name: string; model: string; photos: number; dailyLimit: number }
+  ): Promise<AiPhotoLogEntry> {
+    const used = this.aiPhotosUsedToday(staff.id);
+    if (used + data.photos > data.dailyLimit) {
+      const left = Math.max(0, data.dailyLimit - used);
+      throw new Error(
+        left > 0
+          ? `You can make ${left} more AI photo${left === 1 ? '' : 's'} today. Choose fewer views.`
+          : `You have reached today's limit of ${data.dailyLimit} AI photos. Try again tomorrow.`
+      );
+    }
+    const entry: AiPhotoLogEntry = {
+      id: crypto.randomUUID(),
+      staff_id: staff.id,
+      staff_name: staff.full_name,
+      product_name: data.product_name,
+      model: data.model,
+      photos_requested: data.photos,
+      photos_made: 0,
+      status: 'running',
+      created_at: new Date().toISOString(),
+    };
+    const log = (this.data.ai_photo_log ||= []);
+    log.push(entry);
+    if (log.length > 1000) log.splice(0, log.length - 1000);
+    await this.persist();
+    return entry;
+  }
+
+  /** Marks a run finished; only photos actually made count towards the limit. */
+  public async finishAiPhotoRun(id: string, photosMade: number): Promise<void> {
+    const entry = (this.data.ai_photo_log || []).find(e => e.id === id);
+    if (!entry) return;
+    entry.photos_made = photosMade;
+    entry.status = photosMade > 0 ? 'done' : 'failed';
+    entry.finished_at = new Date().toISOString();
+    await this.persist();
   }
 }
 

@@ -147,7 +147,7 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
 
         <div className="border-t border-line pt-5">
           <p className="mb-3 text-sm font-semibold text-fg">Photos</p>
-          <ImageUploader images={images} onChange={setImages} />
+          <ImageUploader images={images} onChange={setImages} productName={form.name} />
         </div>
 
         <div className="border-t border-line pt-5">

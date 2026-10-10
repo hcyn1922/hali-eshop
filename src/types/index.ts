@@ -319,3 +319,33 @@ export interface ShopProfile {
   invoice_note: string;
   bank_details: string;
 }
+
+// AI studio product photos
+export interface AiStudioSettings {
+  productName: string;
+  background: string;
+  lighting: string;
+  productFill: string;
+}
+
+export interface AiStudioInput {
+  /** Data URLs (JPEG) of the product photo and the optional style reference. */
+  product: string;
+  reference?: string;
+  settings: AiStudioSettings;
+}
+
+export interface AiInspection {
+  product_description: string;
+  visible_text: { text: string; placement: string }[];
+  style_notes: string;
+  plan: string;
+  unclear: string[];
+}
+
+export interface AiPhotoResult {
+  view: string;
+  label: string;
+  url?: string;
+  error?: string;
+}

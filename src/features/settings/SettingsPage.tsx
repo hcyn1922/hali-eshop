@@ -189,6 +189,13 @@ function SetupTab() {
       ),
     },
     {
+      done: Boolean(status.data?.aiPhotos?.enabled),
+      title: 'AI studio product photos (optional)',
+      body: status.data?.aiPhotos?.enabled
+        ? `On, using ${status.data.aiPhotos.model}. Each person can make ${status.data.aiPhotos.dailyLimit} AI photos a day.`
+        : 'Add OPENAI_API_KEY in Vercel to turn product snapshots into studio photos from the product form.',
+    },
+    {
       done: Boolean(shop.data?.phone || shop.data?.instagram),
       title: 'Shop details for invoices',
       body: 'Add your phone, Instagram and bank details in the Shop details tab.',
