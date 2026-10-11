@@ -90,7 +90,7 @@ export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Prom
       // The logo file as supplied, scaled with its own proportions
       if (logo) ctx.drawImage(logo, P - 8, y - 16, LOGO_W, LOGO_W / LOGO_ASPECT);
     }
-    text(shop.name || 'Hali e-shop', P + LOGO_W + 8, y + 30, `700 24px ${FONT}`, NAVY);
+    // The logo carries the shop name, so only the tagline sits beside it
     if (shop.tagline) text(shop.tagline, P + LOGO_W + 8, y + 54, `400 15px ${FONT}`, SOFT);
     text('INVOICE', W - P, y + 26, `700 28px ${FONT}`, NAVY, 'right');
     text(order.order_number, W - P, y + 52, `500 16px ${FONT}`, MUTED, 'right');

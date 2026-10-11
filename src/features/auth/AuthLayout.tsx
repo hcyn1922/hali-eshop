@@ -19,9 +19,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
       <div className="relative hidden flex-1 items-center justify-center overflow-hidden bg-navy-900 lg:flex">
         <div className="absolute inset-0 opacity-40 [background:radial-gradient(60%_50%_at_70%_20%,rgba(235,58,65,0.35),transparent)]" />
         <div className="relative max-w-md px-10 text-center">
-          <div className="mx-auto w-80 rounded-2xl bg-white px-8 py-6 shadow-lg">
-            <Logo className="h-auto w-full" />
-          </div>
+          <Logo className="mx-auto h-auto w-80" />
           <p className="mt-8 text-lg font-medium text-white">Orders, stock and deliveries in one place.</p>
           <p className="mt-2 text-sm text-navy-200">
             Instagram, Viber, WhatsApp and SMS orders · purchase batches · courier handovers.

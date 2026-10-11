@@ -9,13 +9,14 @@ import { cn } from './cn';
 export const LOGO_SRC = '/brand/hali-logo.png';
 export const LOGO_ASPECT = 1024 / 608;
 
-export function Logo({ className }: { className?: string }) {
+/** `className` replaces the default size (one height or one width; the other follows). */
+export function Logo({ className = 'h-12 w-auto self-start' }: { className?: string }) {
   return (
     <img
       src={LOGO_SRC}
       alt="Hali e-shop"
       draggable={false}
-      className={cn('block h-12 w-auto max-w-none shrink-0 self-start select-none object-contain', className)}
+      className={cn('block max-w-none shrink-0 select-none object-contain', className)}
     />
   );
 }

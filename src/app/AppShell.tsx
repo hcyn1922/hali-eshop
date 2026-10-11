@@ -96,7 +96,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="px-5 pb-2 pt-6">
-        <Logo className="h-14" />
+        <Logo className="h-14 w-auto self-start" />
       </div>
       {can.createOrders(role) && (
         <div className="px-4 pt-4">
