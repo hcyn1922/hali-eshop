@@ -1,5 +1,6 @@
 import type { Order, ShopProfile } from '../types';
 import { formatMVR, formatMaldivesDate } from './formatters';
+import { LOGO_ASPECT, LOGO_SRC } from '../ui/Logo';
 
 const NAVY = '#0F1736';
 const BRAND = '#EB3A41';
@@ -66,9 +67,10 @@ export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Prom
     delivery_person_name: stripUrls(rawOrder.delivery_person_name),
     items: rawOrder.items.map(i => ({ ...i, product_name: stripUrls(i.product_name) })),
   };
-  const mark = await loadImage('/brand/hali-mark.svg');
+  const logo = await loadImage(LOGO_SRC);
 
   const W = 1000;
+  const LOGO_W = 170;
   const P = 64;
   const scale = 2;
   // Measure pass to size the canvas
@@ -85,13 +87,14 @@ export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Prom
     if (!measureOnly) {
       ctx.fillStyle = BRAND;
       ctx.fillRect(0, 0, W, 6);
-      if (mark) ctx.drawImage(mark, P, y - 4, 52, 52);
+      // The logo file as supplied, scaled with its own proportions
+      if (logo) ctx.drawImage(logo, P - 8, y - 16, LOGO_W, LOGO_W / LOGO_ASPECT);
     }
-    text(shop.name || 'Hali e-shop', P + 68, y + 22, `700 26px ${FONT}`, NAVY);
-    if (shop.tagline) text(shop.tagline, P + 68, y + 46, `400 15px ${FONT}`, SOFT);
-    text('INVOICE', W - P, y + 18, `700 28px ${FONT}`, NAVY, 'right');
-    text(order.order_number, W - P, y + 44, `500 16px ${FONT}`, MUTED, 'right');
-    y += 76;
+    text(shop.name || 'Hali e-shop', P + LOGO_W + 8, y + 30, `700 24px ${FONT}`, NAVY);
+    if (shop.tagline) text(shop.tagline, P + LOGO_W + 8, y + 54, `400 15px ${FONT}`, SOFT);
+    text('INVOICE', W - P, y + 26, `700 28px ${FONT}`, NAVY, 'right');
+    text(order.order_number, W - P, y + 52, `500 16px ${FONT}`, MUTED, 'right');
+    y += 100;
 
     const contact = [shop.address, shop.phone, shop.email, shop.instagram && `@${shop.instagram.replace(/^@/, '')}`].filter(Boolean).join('  ·  ');
     if (contact) {

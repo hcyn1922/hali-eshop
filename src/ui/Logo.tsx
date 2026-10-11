@@ -1,20 +1,21 @@
 import React from 'react';
 import { cn } from './cn';
 
-/** The shopping-bag "e" mark from the Hali logo. */
-export function LogoMark({ className }: { className?: string }) {
-  return <img src="/brand/hali-mark.svg" alt="" className={cn('h-8 w-8', className)} draggable={false} />;
-}
+/**
+ * The official Hali e-shop logo, shown exactly as supplied: the original file,
+ * its own colours and proportions. Only its height is set (width follows), and it
+ * is never cropped, recoloured, filtered, rounded or stretched.
+ */
+export const LOGO_SRC = '/brand/hali-logo.png';
+export const LOGO_ASPECT = 1024 / 608;
 
-/** Mark + "hali shop" wordmark in the logo's colours. */
-export function Logo({ className, inverted }: { className?: string; inverted?: boolean }) {
+export function Logo({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-2.5', className)} aria-label="Hali e-shop">
-      <LogoMark />
-      <span className="font-display text-[19px] font-semibold leading-none tracking-tight">
-        <span className={inverted ? 'text-white' : 'text-navy-900 dark:text-white'}>hali</span>
-        <span className="ml-[3px] text-brand-500">shop</span>
-      </span>
-    </span>
+    <img
+      src={LOGO_SRC}
+      alt="Hali e-shop"
+      draggable={false}
+      className={cn('block h-12 w-auto max-w-none shrink-0 self-start select-none object-contain', className)}
+    />
   );
 }

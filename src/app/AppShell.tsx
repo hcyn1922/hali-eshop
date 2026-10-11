@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ChevronsUpDown, LogOut, Menu as MenuIcon, Moon, Plus, Settings, Sun, UserRound } from 'lucide-react';
-import { Avatar, Button, Logo, LogoMark, Menu, cn } from '../ui';
+import { Avatar, Button, Logo, Menu, cn } from '../ui';
 import { useAuth } from './auth';
 import { can, ROLE_LABELS } from './permissions';
 import { SETTINGS_ITEM, visibleSections, type NavItem } from './nav';
@@ -96,7 +96,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="px-5 pb-2 pt-6">
-        <Logo />
+        <Logo className="h-14" />
       </div>
       {can.createOrders(role) && (
         <div className="px-4 pt-4">
@@ -249,4 +249,3 @@ export function AppShell() {
   );
 }
 
-export { LogoMark };
