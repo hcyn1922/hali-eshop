@@ -173,6 +173,8 @@ interface DatabaseSchema {
   shop_profile?: ShopProfile;
   ai_photo_log?: AiPhotoLogEntry[];
   role_permissions?: Partial<Record<ConfigurableRole, Permission[]>>;
+  /** Margins the owner saved in the price calculator, most recent first. */
+  pricing_margins?: number[];
 }
 
 /** One AI studio photo run, kept for the daily limit and to see who used it. */
@@ -1287,6 +1289,29 @@ class DatabaseEngine {
   }
 
   // =========================================================================
+  // PRICE CALCULATOR: remembered margins
+  // =========================================================================
+  public getPricingMargins(): number[] {
+    return [...(this.data.pricing_margins || [])];
+  }
+
+  /** Puts a margin first in the remembered list (no duplicates, at most 8). */
+  public async rememberPricingMargin(value: unknown): Promise<number[]> {
+    const margin = Math.round(Number(value) * 100) / 100;
+    if (!Number.isFinite(margin) || margin <= 0 || margin >= 100) throw new Error('A margin must be more than 0 and less than 100%.');
+    this.data.pricing_margins = [margin, ...this.getPricingMargins().filter(m => m !== margin)].slice(0, 8);
+    await this.persist();
+    return this.getPricingMargins();
+  }
+
+  public async forgetPricingMargin(value: unknown): Promise<number[]> {
+    const margin = Math.round(Number(value) * 100) / 100;
+    this.data.pricing_margins = this.getPricingMargins().filter(m => m !== margin);
+    await this.persist();
+    return this.getPricingMargins();
+  }
+
+  // =========================================================================
   // SHOP PROFILE (invoice details)
   // =========================================================================
   public getShopProfile(): ShopProfile {
@@ -1469,6 +1494,8 @@ class DatabaseEngine {
         // Redact wholesale cost and the pricing percentage (price ÷ markup would reveal the cost)
         wholesale_unit_cost: isOwner ? p.wholesale_unit_cost : 0,
         pricing_rule_percentage: isOwner ? p.pricing_rule_percentage : 0,
+        shop_price: isOwner ? p.shop_price : undefined,
+        shop_discount_percentage: isOwner ? p.shop_discount_percentage : undefined,
       };
     });
   }
@@ -1485,6 +1512,8 @@ class DatabaseEngine {
       supplier_name: supp?.name,
       wholesale_unit_cost: isOwner ? p.wholesale_unit_cost : 0,
       pricing_rule_percentage: isOwner ? p.pricing_rule_percentage : 0,
+      shop_price: isOwner ? p.shop_price : undefined,
+      shop_discount_percentage: isOwner ? p.shop_discount_percentage : undefined,
     };
   }
 
@@ -1581,10 +1610,18 @@ class DatabaseEngine {
       delete updates.wholesale_unit_cost;
       delete updates.pricing_rule;
       delete updates.pricing_rule_percentage;
+      delete updates.shop_price;
+      delete updates.shop_discount_percentage;
+      delete updates.market_price;
     }
     // SKUs are permanent once assigned
     delete updates.sku;
-    for (const field of ['wholesale_unit_cost', 'actual_listed_price', 'suggested_price', 'low_stock_threshold'] as const) {
+    if (updates.shop_discount_percentage !== undefined) {
+      const d = Number(updates.shop_discount_percentage);
+      if (!Number.isFinite(d) || d < 0 || d >= 100) throw new Error('The shop discount must be from 0 to 99.99%.');
+      updates.shop_discount_percentage = d;
+    }
+    for (const field of ['wholesale_unit_cost', 'actual_listed_price', 'suggested_price', 'low_stock_threshold', 'shop_price', 'market_price'] as const) {
       if (updates[field] !== undefined) {
         const value = Number(updates[field]);
         if (!Number.isFinite(value) || value < 0) throw new Error(`${field.replace(/_/g, ' ')} must be zero or more.`);

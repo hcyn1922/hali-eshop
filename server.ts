@@ -337,6 +337,19 @@ app.post('/api/role-permissions/reset', allow(...OWNER), route(async (_req, res)
   res.json(await db.resetRolePermissions());
 }));
 
+// Price calculator: margins the owner chose to remember
+app.get('/api/pricing/margins', need('pricing.manage'), route((_req, res) => {
+  res.json(db.getPricingMargins());
+}));
+
+app.post('/api/pricing/margins', need('pricing.manage'), route(async (req, res) => {
+  res.json(await db.rememberPricingMargin(req.body?.margin));
+}));
+
+app.delete('/api/pricing/margins/:margin', need('pricing.manage'), route(async (req, res) => {
+  res.json(await db.forgetPricingMargin(req.params.margin));
+}));
+
 // -----------------------------------------------------------------------------
 // Categories & suppliers
 // -----------------------------------------------------------------------------

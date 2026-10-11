@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Layers, Pencil, X } from 'lucide-react';
 import { STOCK_KEYS, useCategories, useProducts } from '../../app/queries';
 import { api } from '../../lib/api';
@@ -100,46 +100,99 @@ function MarkupMarginCalculator() {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const pctText = (n: number) => `${round2(n).toFixed(2).replace(/\.?0+$/, '')}%`;
 
+const MARGIN_KEY = ['pricing-margins'];
+
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex gap-3">
+      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-on-primary">{n}</span>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-semibold text-fg">{title}</h3>
+        <div className="mt-3 flex flex-col gap-3">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+function Result({ label, value, tone }: { label: string; value: React.ReactNode; tone?: 'error' | 'success' }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-subtle px-3.5 py-2.5 text-sm ring-1 ring-inset ring-line">
+      <span className="text-fg-3">{label}</span>
+      <span className={cn('tabular font-semibold', tone === 'error' ? 'text-error-600' : tone === 'success' ? 'text-success-600' : 'text-fg')}>{value}</span>
+    </div>
+  );
+}
+
 /**
- * When a supplier changes the cost (e.g. a 25% discount), shows the new price
- * that keeps the same margin % and the one that keeps the same profit per unit,
- * then lets the owner finalise a price and set it on the product.
+ * Shop price − our discount = wholesale cost. The market price shows the
+ * margin others sell at; the owner picks a margin, gets a selling price,
+ * can change it, and sets it on a product.
  */
-function CostChangeCalculator({ products }: { products: Product[] }) {
+function ShopPriceCalculator({ products }: { products: Product[] }) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const margins = useQuery({ queryKey: MARGIN_KEY, queryFn: api.getPricingMargins });
   const [productId, setProductId] = useState('');
-  const [originalCost, setOriginalCost] = useState('430');
-  const [discount, setDiscount] = useState('25');
-  const [margin, setMargin] = useState('14');
-  const [finalPrice, setFinalPrice] = useState('');
+  const [shopPrice, setShopPrice] = useState('');
+  const [discount, setDiscount] = useState('');
+  const [marketPrice, setMarketPrice] = useState('');
+  const [margin, setMargin] = useState<string | null>(null);
+  const [finalPrice, setFinalPrice] = useState<string | null>(null);
   const [updateCost, setUpdateCost] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const saved = margins.data || [];
+  // Until the owner types a margin, start from the one they used last
+  const marginText = margin ?? (saved[0] !== undefined ? String(saved[0]) : '');
   const product = products.find(p => p.id === productId);
-  const cost = Number(originalCost) || 0;
-  const d = Math.min(Math.max(Number(discount) || 0, -1000), 100) / 100;
-  const m = Math.min(Math.max(Number(margin) || 0, 0), 99.99) / 100;
 
-  const newCost = round2(cost * (1 - d));
-  const currentPrice = round2(cost / (1 - m));
-  const currentProfit = round2(currentPrice - cost);
-  const sameMarginPrice = round2(newCost / (1 - m));
-  const sameProfitPrice = round2(newCost + currentProfit);
+  const shop = Number(shopPrice) || 0;
+  const d = Math.min(Math.max(Number(discount) || 0, 0), 99.99) / 100;
+  const cost = round2(shop * (1 - d));
+  const market = Number(marketPrice) || 0;
+  const marketProfit = round2(market - cost);
+  const m = Number(marginText);
+  const marginValid = marginText !== '' && Number.isFinite(m) && m > 0 && m < 100;
+  const calculated = cost > 0 && marginValid ? round2(cost / (1 - m / 100)) : 0;
 
-  const chosen = Number(finalPrice);
-  const hasFinal = finalPrice !== '' && Number.isFinite(chosen) && chosen > 0;
-  const finalProfit = round2(chosen - newCost);
+  const finalText = finalPrice ?? (calculated ? calculated.toFixed(2) : '');
+  const chosen = Number(finalText);
+  const hasFinal = finalText !== '' && Number.isFinite(chosen) && chosen > 0;
+  const overridden = finalPrice !== null && hasFinal && round2(chosen) !== calculated;
+  const profit = round2(chosen - cost);
+  const vsMarket = round2(chosen - market);
+
+  const setMarginsCache = (list: number[]) => queryClient.setQueryData(MARGIN_KEY, list);
+  const remember = async (value = m) => {
+    if (!(value > 0 && value < 100)) return;
+    try {
+      setMarginsCache(await api.rememberPricingMargin(value));
+    } catch (err: any) {
+      toast(err.message, 'error');
+    }
+  };
+  const forget = async (value: number) => {
+    try {
+      setMarginsCache(await api.forgetPricingMargin(value));
+    } catch (err: any) {
+      toast(err.message, 'error');
+    }
+  };
 
   const pickProduct = (id: string) => {
     setProductId(id);
+    setFinalPrice(null);
     const p = products.find(x => x.id === id);
     if (!p) return;
-    setOriginalCost(String(p.wholesale_unit_cost));
-    if (p.actual_listed_price > 0 && p.wholesale_unit_cost > 0) {
-      setMargin(String(round2(((p.actual_listed_price - p.wholesale_unit_cost) / p.actual_listed_price) * 100)));
+    if (p.shop_price) {
+      setShopPrice(String(p.shop_price));
+      setDiscount(String(p.shop_discount_percentage || 0));
+    } else {
+      setShopPrice(p.wholesale_unit_cost ? String(p.wholesale_unit_cost) : '');
+      setDiscount('0');
     }
-    setFinalPrice('');
+    setMarketPrice(p.market_price ? String(p.market_price) : '');
+    if (p.pricing_rule === 'gross_margin' && p.pricing_rule_percentage > 0) setMargin(String(p.pricing_rule_percentage));
   };
 
   const setPrice = async () => {
@@ -148,19 +201,15 @@ function CostChangeCalculator({ products }: { products: Product[] }) {
     try {
       await api.updateProduct(product.id, {
         actual_listed_price: round2(chosen),
-        ...(updateCost && newCost !== product.wholesale_unit_cost
-          ? {
-              wholesale_unit_cost: newCost,
-              suggested_price: calculateSuggestedPrice(newCost, product.pricing_rule_percentage, product.pricing_rule === 'gross_margin' ? 'gross_margin' : 'markup_on_cost'),
-            }
-          : {}),
+        shop_price: shop,
+        shop_discount_percentage: round2(d * 100),
+        ...(market > 0 ? { market_price: market } : {}),
+        ...(marginValid ? { pricing_rule: 'gross_margin' as PricingRule, pricing_rule_percentage: m, suggested_price: calculated } : {}),
+        ...(updateCost && cost > 0 ? { wholesale_unit_cost: cost } : {}),
       });
+      if (marginValid) await remember();
       await Promise.all(STOCK_KEYS.map(k => queryClient.invalidateQueries({ queryKey: k })));
       toast(`${product.name} now sells for ${formatMVR(chosen)}.`);
-      setOriginalCost(String(updateCost ? newCost : cost));
-      setDiscount('0');
-      setMargin(String(round2(((chosen - (updateCost ? newCost : cost)) / chosen) * 100)));
-      setFinalPrice('');
     } catch (err: any) {
       toast(err.message, 'error');
     } finally {
@@ -168,15 +217,10 @@ function CostChangeCalculator({ products }: { products: Product[] }) {
     }
   };
 
-  const scenarios = [
-    { key: 'margin', title: `Keep the ${pctText(m * 100)} margin`, price: sameMarginPrice, note: `${formatMVR(newCost)} ÷ (1 − ${pctText(m * 100)})` },
-    { key: 'profit', title: `Keep the ${formatMVR(currentProfit)} profit`, price: sameProfitPrice, note: `${formatMVR(newCost)} + ${formatMVR(currentProfit)}` },
-  ];
-
   return (
-    <div className="grid gap-6 p-5 lg:grid-cols-2">
-      <div className="flex flex-col gap-4">
-        <Select label="Product" hint="Optional. Fills in its cost and current margin, and lets you set the final price on it." value={productId} onChange={e => pickProduct(e.target.value)}>
+    <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="flex flex-col gap-6">
+        <Select label="Product" hint="Optional. Fills in what you saved for it last time and lets you set the price on it." value={productId} onChange={e => pickProduct(e.target.value)}>
           <option value="">No product, just calculate</option>
           {products.map(p => (
             <option key={p.id} value={p.id}>
@@ -184,90 +228,146 @@ function CostChangeCalculator({ products }: { products: Product[] }) {
             </option>
           ))}
         </Select>
-        <Input label="Original cost" type="number" min="0" step="0.01" value={originalCost} onChange={e => setOriginalCost(e.target.value)} leading={<span className="text-xs">MVR</span>} />
-        <Input label="Supplier discount" hint="Use a negative number for a price increase." type="number" max="100" step="0.01" value={discount} onChange={e => setDiscount(e.target.value)} trailing={<span className="text-xs">%</span>} />
-        <Input label="Current margin" hint="Profit as a share of the selling price." type="number" min="0" max="99.99" step="0.01" value={margin} onChange={e => setMargin(e.target.value)} trailing={<span className="text-xs">%</span>} />
-        <dl className="divide-y divide-line rounded-lg border border-line px-4">
-          <DetailRow label="New cost">
-            <span className="tabular font-semibold text-fg">{formatMVR(newCost)}</span>
-          </DetailRow>
-          <DetailRow label="Current selling price">
-            <span className="tabular">{formatMVR(product?.actual_listed_price || currentPrice)}</span>
-          </DetailRow>
-          <DetailRow label="Current profit per unit">
-            <span className="tabular">{formatMVR(currentProfit)}</span>
-          </DetailRow>
-        </dl>
+
+        <Step n={1} title="What we pay">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input label="Shop price" type="number" min="0" step="0.01" placeholder="0.00" value={shopPrice} onChange={e => setShopPrice(e.target.value)} leading={<span className="text-xs">MVR</span>} />
+            <Input label="Discount we get" type="number" min="0" max="99.99" step="0.01" placeholder="0" value={discount} onChange={e => setDiscount(e.target.value)} trailing={<span className="text-xs">%</span>} />
+          </div>
+          <Result label="Wholesale cost" value={formatMVR(cost)} />
+        </Step>
+
+        <Step n={2} title="What the market charges">
+          <Input label="Market selling price" hint="What other sellers sell this item for." type="number" min="0" step="0.01" placeholder="0.00" value={marketPrice} onChange={e => setMarketPrice(e.target.value)} leading={<span className="text-xs">MVR</span>} />
+          <Result
+            label="Market margin"
+            value={market > 0 && cost > 0 ? `${pctText((marketProfit / market) * 100)} · ${formatMVR(marketProfit)} profit` : '—'}
+            tone={market > 0 && cost > 0 && marketProfit < 0 ? 'error' : undefined}
+          />
+        </Step>
+
+        <Step n={3} title="Our margin">
+          <Input
+            label="Margin we want"
+            hint="Profit as a share of the selling price. Margins you use are remembered."
+            type="number"
+            min="0"
+            max="99.99"
+            step="0.01"
+            placeholder="e.g. 20"
+            value={marginText}
+            onChange={e => {
+              setMargin(e.target.value);
+              setFinalPrice(null);
+            }}
+            onBlur={() => marginValid && !saved.includes(round2(m)) && remember()}
+            trailing={<span className="text-xs">%</span>}
+          />
+          {saved.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-fg-3">Saved margins</p>
+              <div className="flex flex-wrap gap-2">
+                {saved.map(v => {
+                  const active = marginValid && round2(m) === v;
+                  return (
+                    <span
+                      key={v}
+                      className={cn(
+                        'inline-flex items-center rounded-full text-sm ring-1 ring-inset',
+                        active ? 'bg-primary text-on-primary ring-primary' : 'bg-surface text-fg-2 ring-line-strong'
+                      )}
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={active}
+                        className="focus-ring cursor-pointer rounded-full py-1 pl-3 pr-1.5 font-medium tabular"
+                        onClick={() => {
+                          setMargin(String(v));
+                          setFinalPrice(null);
+                        }}
+                      >
+                        {pctText(v)}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Forget ${pctText(v)}`}
+                        className={cn('focus-ring mr-1 cursor-pointer rounded-full p-1', active ? 'hover:bg-white/15' : 'text-fg-4 hover:bg-hover hover:text-fg-2')}
+                        onClick={() => forget(v)}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Step>
       </div>
 
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          {scenarios.map(s => {
-            const selected = hasFinal && round2(chosen) === s.price;
-            return (
-              <button
-                key={s.key}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setFinalPrice(s.price.toFixed(2))}
-                className={cn(
-                  'focus-ring cursor-pointer rounded-xl p-4 text-left ring-1 ring-inset transition-colors',
-                  selected ? 'bg-primary/5 ring-2 ring-primary' : 'bg-subtle ring-line hover:bg-hover'
-                )}
-              >
-                <p className="text-sm font-medium text-fg-3">{s.title}</p>
-                <p className="tabular mt-1 text-2xl font-semibold tracking-tight text-fg">{formatMVR(s.price)}</p>
-                <p className="mt-1 font-mono text-xs text-fg-4">{s.note}</p>
-                <p className="mt-3 text-xs font-medium text-fg-2">{selected ? 'Selected' : 'Use this price'}</p>
-              </button>
-            );
-          })}
-        </div>
+      <div className="flex flex-col rounded-xl bg-subtle p-5 ring-1 ring-inset ring-line">
+        <p className="text-sm font-medium text-fg-3">Calculated selling price</p>
+        <p className="tabular mt-1 text-4xl font-semibold tracking-tight text-fg">{calculated ? formatMVR(calculated) : '—'}</p>
+        <p className="mt-2 font-mono text-sm text-fg-3">
+          {calculated ? `${formatMVR(cost)} ÷ (1 − ${pctText(m)})` : 'Enter the shop price and the margin you want.'}
+        </p>
 
-        <div className="flex flex-1 flex-col rounded-xl bg-subtle p-5 ring-1 ring-inset ring-line">
-          <p className="text-sm font-semibold text-fg">Finalise the price</p>
-          <p className="mt-0.5 text-sm text-fg-3">Pick a suggestion above or type your own price.</p>
+        <div className="mt-5 border-t border-line pt-5">
           <Input
-            containerClassName="mt-4"
             label="Final selling price"
+            hint={overridden ? undefined : 'Change it to anything you like, e.g. a rounder number.'}
             type="number"
             min="0"
             step="0.01"
-            placeholder={sameMarginPrice.toFixed(2)}
-            value={finalPrice}
+            placeholder="0.00"
+            value={finalText}
             onChange={e => setFinalPrice(e.target.value)}
             leading={<span className="text-xs">MVR</span>}
           />
-          {hasFinal && (
+          {overridden && (
+            <button type="button" className="mt-1.5 cursor-pointer text-sm font-medium text-fg-2 underline underline-offset-4 hover:text-fg" onClick={() => setFinalPrice(null)}>
+              Use the calculated {formatMVR(calculated)}
+            </button>
+          )}
+          {hasFinal && cost > 0 && (
             <dl className="mt-3 divide-y divide-line border-t border-line">
               <DetailRow label="Profit per unit">
-                <span className={cn('tabular', finalProfit < 0 && 'text-error-600')}>{formatMVR(finalProfit)}</span>
+                <span className={cn('tabular', profit < 0 && 'text-error-600')}>{formatMVR(profit)}</span>
               </DetailRow>
-              <DetailRow label="Margin on price">{pctText((finalProfit / chosen) * 100)}</DetailRow>
-              <DetailRow label="Markup on cost">{newCost > 0 ? pctText((finalProfit / newCost) * 100) : '—'}</DetailRow>
+              <DetailRow label="Our margin">{pctText((profit / chosen) * 100)}</DetailRow>
+              <DetailRow label="Markup on cost">{pctText((profit / cost) * 100)}</DetailRow>
+              {market > 0 && (
+                <DetailRow label="Against the market">
+                  <span className={cn('tabular', vsMarket > 0 ? 'text-warning-600' : 'text-success-600')}>
+                    {vsMarket === 0 ? 'Same price' : `${formatMVR(Math.abs(vsMarket))} ${vsMarket > 0 ? 'above' : 'below'}`}
+                  </span>
+                </DetailRow>
+              )}
             </dl>
           )}
-          <div className="mt-auto pt-4">
-            {product ? (
-              <>
-                {newCost !== product.wholesale_unit_cost && (
-                  <div className="mb-4">
-                    <Toggle
-                      checked={updateCost}
-                      onChange={setUpdateCost}
-                      label={`Also change its cost to ${formatMVR(newCost)}`}
-                      hint="New orders then record the new cost. Turn off while you still sell stock bought at the old cost."
-                    />
-                  </div>
-                )}
-                <Button variant="primary" className="w-full" icon={<Check className="h-4 w-4" />} loading={saving} disabled={!hasFinal} onClick={setPrice}>
-                  {hasFinal ? `Set ${product.name} to ${formatMVR(chosen)}` : 'Choose a price first'}
-                </Button>
-              </>
-            ) : (
-              <p className="text-sm text-fg-3">Choose a product at the top to set this price on it.</p>
-            )}
-          </div>
+        </div>
+
+        <div className="mt-auto pt-5">
+          {product ? (
+            <>
+              {cost > 0 && cost !== product.wholesale_unit_cost && (
+                <div className="mb-4">
+                  <Toggle
+                    checked={updateCost}
+                    onChange={setUpdateCost}
+                    label={`Also change its cost from ${formatMVR(product.wholesale_unit_cost)} to ${formatMVR(cost)}`}
+                    hint="New orders then record the new cost. Turn off while you still sell stock bought at the old cost."
+                  />
+                </div>
+              )}
+              <Button variant="primary" className="w-full" icon={<Check className="h-4 w-4" />} loading={saving} disabled={!hasFinal} onClick={setPrice}>
+                {hasFinal ? `Set ${product.name} to ${formatMVR(chosen)}` : 'Enter a price first'}
+              </Button>
+              <p className="mt-2 text-xs text-fg-4">Also saves the shop price, discount, market price and margin on the product for next time.</p>
+            </>
+          ) : (
+            <p className="text-sm text-fg-3">Choose a product at the top to set this price on it.</p>
+          )}
         </div>
       </div>
     </div>
@@ -275,16 +375,16 @@ function CostChangeCalculator({ products }: { products: Product[] }) {
 }
 
 function PricingCalculator({ products }: { products: Product[] }) {
-  const [mode, setMode] = useState<'cost_change' | 'markup_margin'>('cost_change');
+  const [mode, setMode] = useState<'shop_price' | 'markup_margin'>('shop_price');
   return (
     <Card>
       <CardHeader
         title="Price calculator"
-        description={mode === 'cost_change' ? 'Work out a new price when the supplier changes the cost.' : 'Compare markup on cost with margin on the selling price.'}
+        description={mode === 'shop_price' ? 'From the shop price and our discount to a selling price, checked against the market.' : 'Compare markup on cost with margin on the selling price.'}
         actions={
           <Segmented
             items={[
-              { key: 'cost_change', label: 'Cost change' },
+              { key: 'shop_price', label: 'Shop price' },
               { key: 'markup_margin', label: 'Markup or margin' },
             ]}
             value={mode}
@@ -292,7 +392,7 @@ function PricingCalculator({ products }: { products: Product[] }) {
           />
         }
       />
-      {mode === 'cost_change' ? <CostChangeCalculator products={products} /> : <MarkupMarginCalculator />}
+      {mode === 'shop_price' ? <ShopPriceCalculator products={products} /> : <MarkupMarginCalculator />}
     </Card>
   );
 }

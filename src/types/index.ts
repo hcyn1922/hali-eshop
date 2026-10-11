@@ -119,6 +119,8 @@ export interface Product {
   gst_rate?: number; // Standard Maldives General GST (8%)
   gst_amount?: number; // MVR GST component per unit
   market_price?: number; // Competitor / Market benchmark price in MVR
+  shop_price?: number; // The supplier shop's own price before our discount (cost data)
+  shop_discount_percentage?: number; // Discount the shop gives us (cost data)
   calculated_selling_price?: number; // Algorithmic selling price based on rule + 8% GST
   is_price_overridden?: boolean; // Whether actual_listed_price is an owner override vs rule-calculated
   price_override_reason?: string; // Reason for manual override

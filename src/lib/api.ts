@@ -176,6 +176,11 @@ export const api = {
     ),
   loadSampleInventory: () => request<{ message: string; success: boolean }>('/api/sample/load', post()),
 
+  // Price calculator
+  getPricingMargins: () => request<number[]>('/api/pricing/margins'),
+  rememberPricingMargin: (margin: number) => request<number[]>('/api/pricing/margins', post({ margin })),
+  forgetPricingMargin: (margin: number) => request<number[]>(`/api/pricing/margins/${margin}`, { method: 'DELETE' }),
+
   // Role permissions (owner)
   getRolePermissions: () => request<Record<ConfigurableRole, Permission[]>>('/api/role-permissions'),
   updateRolePermissions: (role: ConfigurableRole, permissions: Permission[]) =>
