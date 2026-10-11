@@ -350,6 +350,14 @@ app.delete('/api/pricing/margins/:margin', need('pricing.manage'), route(async (
   res.json(await db.forgetPricingMargin(req.params.margin));
 }));
 
+app.get('/api/pricing/delivery-rate', need('pricing.manage'), route((_req, res) => {
+  res.json({ rate: db.getPricingDeliveryRate() });
+}));
+
+app.put('/api/pricing/delivery-rate', need('pricing.manage'), route(async (req, res) => {
+  res.json({ rate: await db.setPricingDeliveryRate(req.body?.rate) });
+}));
+
 // -----------------------------------------------------------------------------
 // Categories & suppliers
 // -----------------------------------------------------------------------------

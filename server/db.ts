@@ -175,6 +175,8 @@ interface DatabaseSchema {
   role_permissions?: Partial<Record<ConfigurableRole, Permission[]>>;
   /** Margins the owner saved in the price calculator, most recent first. */
   pricing_margins?: number[];
+  /** The usual delivery charge per order, used by the price calculator. */
+  pricing_delivery_rate?: number;
 }
 
 /** One AI studio photo run, kept for the daily limit and to see who used it. */
@@ -1309,6 +1311,18 @@ class DatabaseEngine {
     this.data.pricing_margins = this.getPricingMargins().filter(m => m !== margin);
     await this.persist();
     return this.getPricingMargins();
+  }
+
+  public getPricingDeliveryRate(): number {
+    return this.data.pricing_delivery_rate || 0;
+  }
+
+  public async setPricingDeliveryRate(value: unknown): Promise<number> {
+    const rate = Math.round(Number(value) * 100) / 100;
+    if (!Number.isFinite(rate) || rate < 0) throw new Error('The delivery rate must be zero or more.');
+    this.data.pricing_delivery_rate = rate;
+    await this.persist();
+    return rate;
   }
 
   // =========================================================================

@@ -101,6 +101,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const pctText = (n: number) => `${round2(n).toFixed(2).replace(/\.?0+$/, '')}%`;
 
 const MARGIN_KEY = ['pricing-margins'];
+const DELIVERY_KEY = ['pricing-delivery-rate'];
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -133,7 +134,11 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
   const toast = useToast();
   const margins = useQuery({ queryKey: MARGIN_KEY, queryFn: api.getPricingMargins });
   const [productId, setProductId] = useState('');
+  const deliveryRate = useQuery({ queryKey: DELIVERY_KEY, queryFn: api.getPricingDeliveryRate });
+  const [known, setKnown] = useState<'shop' | 'wholesale'>('shop');
   const [shopPrice, setShopPrice] = useState('');
+  const [wholesalePrice, setWholesalePrice] = useState('');
+  const [delivery, setDelivery] = useState<string | null>(null);
   const [discount, setDiscount] = useState('');
   const [marketPrice, setMarketPrice] = useState('');
   const [margin, setMargin] = useState<string | null>(null);
@@ -146,9 +151,10 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
   const marginText = margin ?? (saved[0] !== undefined ? String(saved[0]) : '');
   const product = products.find(p => p.id === productId);
 
-  const shop = Number(shopPrice) || 0;
   const d = Math.min(Math.max(Number(discount) || 0, 0), 99.99) / 100;
-  const cost = round2(shop * (1 - d));
+  // Either the shop price is known (cost = shop − discount) or the wholesale price is (shop = cost ÷ (1 − discount))
+  const cost = known === 'shop' ? round2((Number(shopPrice) || 0) * (1 - d)) : round2(Number(wholesalePrice) || 0);
+  const shop = known === 'shop' ? round2(Number(shopPrice) || 0) : round2(cost / (1 - d));
   const market = Number(marketPrice) || 0;
   const marketProfit = round2(market - cost);
   const m = Number(marginText);
@@ -161,6 +167,17 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
   const overridden = finalPrice !== null && hasFinal && round2(chosen) !== calculated;
   const profit = round2(chosen - cost);
   const vsMarket = round2(chosen - market);
+  const deliveryText = delivery ?? (deliveryRate.data?.rate ? String(deliveryRate.data.rate) : '');
+  const deliveryCost = Math.max(Number(deliveryText) || 0, 0);
+  const netProfit = round2(chosen - cost - deliveryCost);
+  const rememberDelivery = async () => {
+    if (deliveryText === '' || deliveryCost === (deliveryRate.data?.rate || 0)) return;
+    try {
+      queryClient.setQueryData(DELIVERY_KEY, await api.setPricingDeliveryRate(deliveryCost));
+    } catch (err: any) {
+      toast(err.message, 'error');
+    }
+  };
 
   const setMarginsCache = (list: number[]) => queryClient.setQueryData(MARGIN_KEY, list);
   const remember = async (value = m) => {
@@ -185,10 +202,12 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
     const p = products.find(x => x.id === id);
     if (!p) return;
     if (p.shop_price) {
+      setKnown('shop');
       setShopPrice(String(p.shop_price));
       setDiscount(String(p.shop_discount_percentage || 0));
     } else {
-      setShopPrice(p.wholesale_unit_cost ? String(p.wholesale_unit_cost) : '');
+      setKnown('wholesale');
+      setWholesalePrice(p.wholesale_unit_cost ? String(p.wholesale_unit_cost) : '');
       setDiscount('0');
     }
     setMarketPrice(p.market_price ? String(p.market_price) : '');
@@ -201,13 +220,14 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
     try {
       await api.updateProduct(product.id, {
         actual_listed_price: round2(chosen),
-        shop_price: shop,
+        ...(shop > 0 ? { shop_price: shop } : {}),
         shop_discount_percentage: round2(d * 100),
         ...(market > 0 ? { market_price: market } : {}),
         ...(marginValid ? { pricing_rule: 'gross_margin' as PricingRule, pricing_rule_percentage: m, suggested_price: calculated } : {}),
         ...(updateCost && cost > 0 ? { wholesale_unit_cost: cost } : {}),
       });
       if (marginValid) await remember();
+      await rememberDelivery();
       await Promise.all(STOCK_KEYS.map(k => queryClient.invalidateQueries({ queryKey: k })));
       toast(`${product.name} now sells for ${formatMVR(chosen)}.`);
     } catch (err: any) {
@@ -230,11 +250,39 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
         </Select>
 
         <Step n={1} title="What we pay">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input label="Shop price" type="number" min="0" step="0.01" placeholder="0.00" value={shopPrice} onChange={e => setShopPrice(e.target.value)} leading={<span className="text-xs">MVR</span>} />
-            <Input label="Discount we get" type="number" min="0" max="99.99" step="0.01" placeholder="0" value={discount} onChange={e => setDiscount(e.target.value)} trailing={<span className="text-xs">%</span>} />
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-fg-2">We know the</p>
+            <Segmented
+              items={[
+                { key: 'shop', label: 'Shop price' },
+                { key: 'wholesale', label: 'Wholesale price' },
+              ]}
+              value={known}
+              onChange={k => {
+                // Carry the current figure over so switching never loses it
+                if (k === 'wholesale' && cost > 0) setWholesalePrice(String(cost));
+                if (k === 'shop' && shop > 0) setShopPrice(String(shop));
+                setKnown(k);
+                setFinalPrice(null);
+              }}
+            />
           </div>
-          <Result label="Wholesale cost" value={formatMVR(cost)} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {known === 'shop' ? (
+              <Input label="Shop price" type="number" min="0" step="0.01" placeholder="0.00" value={shopPrice} onChange={e => { setShopPrice(e.target.value); setFinalPrice(null); }} leading={<span className="text-xs">MVR</span>} />
+            ) : (
+              <Input label="Wholesale price" type="number" min="0" step="0.01" placeholder="0.00" value={wholesalePrice} onChange={e => { setWholesalePrice(e.target.value); setFinalPrice(null); }} leading={<span className="text-xs">MVR</span>} />
+            )}
+            <Input label="Discount we get" type="number" min="0" max="99.99" step="0.01" placeholder="0" value={discount} onChange={e => { setDiscount(e.target.value); setFinalPrice(null); }} trailing={<span className="text-xs">%</span>} />
+          </div>
+          {known === 'shop' ? (
+            <Result label="Wholesale cost" value={formatMVR(cost)} />
+          ) : (
+            <>
+              <Result label="Shop price" value={cost > 0 ? formatMVR(shop) : '—'} />
+              <Result label="Wholesale cost" value={formatMVR(cost)} />
+            </>
+          )}
         </Step>
 
         <Step n={2} title="What the market charges">
@@ -331,7 +379,7 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
           )}
           {hasFinal && cost > 0 && (
             <dl className="mt-3 divide-y divide-line border-t border-line">
-              <DetailRow label="Profit per unit">
+              <DetailRow label="Profit before delivery">
                 <span className={cn('tabular', profit < 0 && 'text-error-600')}>{formatMVR(profit)}</span>
               </DetailRow>
               <DetailRow label="Our margin">{pctText((profit / chosen) * 100)}</DetailRow>
@@ -346,6 +394,46 @@ function ShopPriceCalculator({ products }: { products: Product[] }) {
             </dl>
           )}
         </div>
+
+        {hasFinal && cost > 0 && (
+          <div className="mt-5 rounded-lg bg-surface p-4 ring-1 ring-inset ring-line">
+            <p className="text-sm font-semibold text-fg">Our profit on this product</p>
+            <Input
+              containerClassName="mt-3"
+              label="Normal delivery rate"
+              hint="What one delivery costs us. Remembered for next time."
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              value={deliveryText}
+              onChange={e => setDelivery(e.target.value)}
+              onBlur={rememberDelivery}
+              leading={<span className="text-xs">MVR</span>}
+            />
+            <dl className="mt-3 divide-y divide-line border-t border-line">
+              <DetailRow label="Selling price">
+                <span className="tabular">{formatMVR(chosen)}</span>
+              </DetailRow>
+              <DetailRow label="Wholesale cost">
+                <span className="tabular">− {formatMVR(cost)}</span>
+              </DetailRow>
+              <DetailRow label="Delivery">
+                <span className="tabular">− {formatMVR(deliveryCost)}</span>
+              </DetailRow>
+              <DetailRow label={<span className="font-semibold text-fg">Profit per sale</span>}>
+                <span className={cn('tabular text-base font-semibold', netProfit < 0 ? 'text-error-600' : 'text-success-600')}>{formatMVR(netProfit)}</span>
+              </DetailRow>
+              <DetailRow label="Margin after delivery">{pctText((netProfit / chosen) * 100)}</DetailRow>
+              {product && product.available_stock > 0 && (
+                <DetailRow label={`Profit on the ${product.available_stock} in stock`}>
+                  <span className={cn('tabular font-medium', netProfit < 0 && 'text-error-600')}>{formatMVR(netProfit * product.available_stock)}</span>
+                </DetailRow>
+              )}
+            </dl>
+            {product && product.available_stock > 0 && <p className="mt-2 text-xs text-fg-4">Stock profit assumes each item goes out in its own delivery.</p>}
+          </div>
+        )}
 
         <div className="mt-auto pt-5">
           {product ? (
@@ -380,7 +468,7 @@ function PricingCalculator({ products }: { products: Product[] }) {
     <Card>
       <CardHeader
         title="Price calculator"
-        description={mode === 'shop_price' ? 'From the shop price and our discount to a selling price, checked against the market.' : 'Compare markup on cost with margin on the selling price.'}
+        description={mode === 'shop_price' ? 'From the shop or wholesale price to a selling price, checked against the market, and our profit after delivery.' : 'Compare markup on cost with margin on the selling price.'}
         actions={
           <Segmented
             items={[

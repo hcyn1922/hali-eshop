@@ -181,6 +181,9 @@ export const api = {
   rememberPricingMargin: (margin: number) => request<number[]>('/api/pricing/margins', post({ margin })),
   forgetPricingMargin: (margin: number) => request<number[]>(`/api/pricing/margins/${margin}`, { method: 'DELETE' }),
 
+  getPricingDeliveryRate: () => request<{ rate: number }>('/api/pricing/delivery-rate'),
+  setPricingDeliveryRate: (rate: number) => request<{ rate: number }>('/api/pricing/delivery-rate', put({ rate })),
+
   // Role permissions (owner)
   getRolePermissions: () => request<Record<ConfigurableRole, Permission[]>>('/api/role-permissions'),
   updateRolePermissions: (role: ConfigurableRole, permissions: Permission[]) =>
