@@ -3,7 +3,8 @@ import { Download, FileText, PackageCheck, Paperclip, Printer, Share2, Trash2, T
 import { api } from '../../lib/api';
 import { formatMVR } from '../../lib/formatters';
 import { renderInvoice } from '../../lib/invoice';
-import { ORDER_KEYS, useAction, useCouriers, useShopProfile } from '../../app/queries';
+import { ORDER_KEYS, useAction, useCouriers, useProducts, useShops } from '../../app/queries';
+import { shopForOrder } from '../shops/shopUtils';
 import type { Order, OrderStage, PaymentMethod } from '../../types';
 import { Button, Input, Modal, Select, Spinner, Textarea, useToast } from '../../ui';
 import { PAYMENT_METHODS, STAGES, balanceDue } from './meta';
@@ -284,15 +285,18 @@ export function StageModal({
 }
 
 export function InvoiceModal({ order, open, onClose }: { order: Order; open: boolean; onClose: () => void }) {
-  const shop = useShopProfile();
+  const shops = useShops();
+  const products = useProducts();
   const toast = useToast();
+  // The invoice comes from the shop the order's products belong to
+  const shop = shops.data && products.data ? shopForOrder(order, products.data, shops.data) : undefined;
   const [blob, setBlob] = useState<Blob | null>(null);
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !shop.data) return;
+    if (!open || !shop) return;
     let objectUrl: string | null = null;
-    renderInvoice(order, shop.data)
+    renderInvoice(order, shop)
       .then(b => {
         objectUrl = URL.createObjectURL(b);
         setBlob(b);
@@ -304,7 +308,7 @@ export function InvoiceModal({ order, open, onClose }: { order: Order; open: boo
       setUrl(null);
       setBlob(null);
     };
-  }, [open, order, shop.data, toast]);
+  }, [open, order, shop, toast]);
 
   const fileName = `Invoice-${order.order_number}.jpg`;
   const file = blob ? new File([blob], fileName, { type: 'image/jpeg' }) : null;

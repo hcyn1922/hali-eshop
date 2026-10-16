@@ -14,6 +14,7 @@ import type {
   StaffProfile,
   Category,
   Shop,
+  ShopBankAccount,
   Supplier,
   DeliveryService,
   Product,
@@ -370,6 +371,15 @@ class DatabaseEngine {
       merged.shops = DEFAULT_SHOPS.map(s => ({ ...s, created_at: now }));
     }
     const shops = merged.shops || [];
+    // Hali eshop takes over the details from the old single "Shop details" form, and the official logo
+    const hali = shops.find(s => s.id === DEFAULT_SHOPS[0].id);
+    if (hali && hali.logo_url === undefined) {
+      const legacy = { ...DEFAULT_SHOP_PROFILE, ...(parsed.shop_profile || {}) };
+      hali.logo_url = '/brand/hali-logo.png';
+      for (const key of ['tagline', 'phone', 'email', 'instagram', 'address', 'gst_tin', 'invoice_note', 'bank_details'] as const) {
+        if (hali[key] === undefined && legacy[key]) hali[key] = legacy[key];
+      }
+    }
     const fallbackShop = shops.find(s => s.id === DEFAULT_SHOPS[0].id) || shops[0];
     if (fallbackShop) {
       merged.products = merged.products.map(p => (p.shop_id && shops.some(s => s.id === p.shop_id) ? p : { ...p, shop_id: fallbackShop.id }));
@@ -1395,25 +1405,78 @@ class DatabaseEngine {
     return name;
   }
 
-  public async createShop(name: unknown, description?: unknown): Promise<Shop> {
+  /** Text fields anyone who manages the catalog can edit, with their length limits. */
+  private static SHOP_TEXT: Record<string, number> = { description: 300, tagline: 120, phone: 60, email: 120, instagram: 60, address: 300, invoice_note: 300 };
+  /** Payment and tax details printed on invoices: only the owner may change these. */
+  private static SHOP_OWNER_ONLY = ['gst_tin', 'bank_accounts', 'bank_details'] as const;
+
+  private applyShopDetails(shop: Shop, updates: Record<string, unknown>, role: StaffRole) {
+    for (const [key, max] of Object.entries(DatabaseEngine.SHOP_TEXT)) {
+      if (updates[key] !== undefined) (shop as any)[key] = String(updates[key] ?? '').trim().slice(0, max);
+    }
+    if (shop.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(shop.email)) throw new Error('Enter a valid shop email.');
+    if (updates.logo_url !== undefined) {
+      const logo = String(updates.logo_url ?? '').trim();
+      if (logo && !/^(https:\/\/|\/uploads\/|\/brand\/)[^\s"'<>]+$/.test(logo)) throw new Error('Upload the logo as an image file.');
+      shop.logo_url = logo;
+    }
+    const ownerChanges = DatabaseEngine.SHOP_OWNER_ONLY.filter(k => updates[k] !== undefined);
+    if (ownerChanges.length && role !== 'owner') {
+      const before = JSON.stringify(DatabaseEngine.SHOP_OWNER_ONLY.map(k => shop[k] ?? null));
+      const probe = { ...shop };
+      this.applyOwnerShopFields(probe, updates);
+      if (JSON.stringify(DatabaseEngine.SHOP_OWNER_ONLY.map(k => probe[k] ?? null)) !== before) {
+        throw Object.assign(new Error('Only the shop owner can change bank accounts and the GST TIN.'), { status: 403 });
+      }
+      return;
+    }
+    this.applyOwnerShopFields(shop, updates);
+  }
+
+  private applyOwnerShopFields(shop: Shop, updates: Record<string, unknown>) {
+    if (updates.gst_tin !== undefined) shop.gst_tin = String(updates.gst_tin ?? '').trim().toUpperCase().slice(0, 40);
+    if (updates.bank_details !== undefined) shop.bank_details = String(updates.bank_details ?? '').trim().slice(0, 500);
+    if (updates.bank_accounts !== undefined) {
+      if (!Array.isArray(updates.bank_accounts)) throw new Error('Bank accounts must be a list.');
+      const accounts: ShopBankAccount[] = [];
+      for (const raw of updates.bank_accounts.slice(0, 6) as any[]) {
+        const bank = String(raw?.bank ?? '').trim().slice(0, 40);
+        const account_number = String(raw?.account_number ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+        const account_name = String(raw?.account_name ?? '').trim().slice(0, 80);
+        // A bank chosen with nothing typed in is just an unused row
+        if (!account_number && !account_name) continue;
+        if (!bank) throw new Error('Choose the bank for each account.');
+        if (!/^[0-9][0-9 -]{4,38}[0-9]$/.test(account_number)) throw new Error(`Enter a valid ${bank} account number (digits only).`);
+        accounts.push({ bank, account_name, account_number });
+      }
+      shop.bank_accounts = accounts;
+    }
+  }
+
+  public async createShop(body: Record<string, unknown>, role: StaffRole): Promise<Shop> {
     const shop: Shop = {
       id: crypto.randomUUID(),
-      name: this.cleanShopName(name),
-      description: String(description ?? '').trim().slice(0, 300),
+      name: this.cleanShopName(body.name),
+      description: '',
+      logo_url: '',
       created_at: new Date().toISOString(),
     };
+    this.applyShopDetails(shop, body, role);
     this.data.shops = [...(this.data.shops || []), shop];
     await this.persist();
     return shop;
   }
 
-  public async updateShop(id: string, updates: { name?: unknown; description?: unknown }): Promise<Shop> {
-    const shop = (this.data.shops || []).find(s => s.id === id);
-    if (!shop) throw new Error('Shop not found.');
+  public async updateShop(id: string, updates: Record<string, unknown>, role: StaffRole): Promise<Shop> {
+    const current = (this.data.shops || []).find(s => s.id === id);
+    if (!current) throw new Error('Shop not found.');
+    // Validate on a copy so a rejected change leaves the shop untouched
+    const shop: Shop = { ...current, bank_accounts: current.bank_accounts?.map(a => ({ ...a })) };
     if (updates.name !== undefined) shop.name = this.cleanShopName(updates.name, id);
-    if (updates.description !== undefined) shop.description = String(updates.description ?? '').trim().slice(0, 300);
+    this.applyShopDetails(shop, updates, role);
+    Object.assign(current, shop);
     await this.persist();
-    return shop;
+    return current;
   }
 
   public async deleteShop(id: string): Promise<void> {

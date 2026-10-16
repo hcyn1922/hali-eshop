@@ -1,65 +1,54 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Pencil, Plus, Store, Trash2 } from 'lucide-react';
-import { STOCK_KEYS, keys, useAction, useShops } from '../../app/queries';
-import { api } from '../../lib/api';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight, Plus, Store } from 'lucide-react';
+import { useShops } from '../../app/queries';
 import type { Shop } from '../../types';
-import { Button, Card, EmptyState, Input, Modal, PageHeader, Skeleton, Textarea } from '../../ui';
+import { Badge, Button, Card, EmptyState, Modal, PageHeader, Skeleton } from '../../ui';
+import { ShopDetailsForm, ShopLogo } from './ShopDetailsForm';
 
-function ShopModal({ shop, onClose }: { shop?: Shop; onClose: () => void }) {
-  const [name, setName] = useState(shop?.name || '');
-  const [description, setDescription] = useState(shop?.description || '');
-  const save = useAction(() => (shop ? api.updateShop(shop.id, { name, description }) : api.createShop(name, description)), {
-    invalidate: [keys.shops, keys.products],
-    success: s => `Shop "${s.name}" saved.`,
-    onSuccess: onClose,
-  });
+/** New or edit shop: the full details form in a window, with a save bar that stays in view. */
+export function ShopModal({ shop, onClose }: { shop?: Shop; onClose: (saved?: Shop) => void }) {
   return (
-    <Modal
-      open
-      size="sm"
-      onClose={onClose}
-      icon={<Store className="h-5 w-5" />}
-      title={shop ? 'Edit shop' : 'New shop'}
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" loading={save.isPending} disabled={!name.trim()} onClick={() => save.mutate(undefined)}>
-            Save
-          </Button>
-        </>
-      }
-    >
-      <form className="flex flex-col gap-4" onSubmit={e => { e.preventDefault(); if (name.trim()) save.mutate(undefined); }}>
-        <Input label="Shop name" required autoFocus maxLength={60} value={name} onChange={e => setName(e.target.value)} />
-        <Textarea label="Notes" rows={2} maxLength={300} value={description} onChange={e => setDescription(e.target.value)} hint="Optional, e.g. what this shop sells." />
-      </form>
+    <Modal open size="lg" onClose={() => onClose()} icon={<Store className="h-5 w-5" />} title={shop ? `Edit ${shop.name}` : 'New shop'} description="Shown on this shop's invoices.">
+      <ShopDetailsForm
+        shop={shop}
+        onSaved={s => onClose(s)}
+        footer={({ submit, busy, valid }) => (
+          <div className="pb-safe sticky -bottom-5 z-10 -mx-5 mt-6 flex flex-col-reverse gap-3 border-t border-line bg-surface px-5 py-4 sm:-mx-6 sm:flex-row sm:justify-end sm:px-6">
+            <Button onClick={() => onClose()}>Cancel</Button>
+            <Button variant="primary" loading={busy} disabled={!valid} onClick={submit}>
+              {shop ? 'Save shop' : 'Add shop'}
+            </Button>
+          </div>
+        )}
+      />
     </Modal>
   );
 }
+
+export const isGstRegistered = (shop?: Pick<Shop, 'gst_tin'>) => Boolean(shop?.gst_tin?.trim());
 
 /** The owner's storefronts. Every product belongs to one shop. */
 export function ShopsPage() {
   const shops = useShops();
   const navigate = useNavigate();
-  const [editing, setEditing] = useState<Shop | 'new' | null>(null);
-  const remove = useAction((s: Shop) => api.deleteShop(s.id), { invalidate: [keys.shops, ...STOCK_KEYS], success: 'Shop removed.' });
+  const [adding, setAdding] = useState(false);
   const list = shops.data || [];
 
   return (
     <>
       <PageHeader
         title="Shops"
-        description="Your storefronts. Every product belongs to one shop, and the Products page can show one shop at a time."
+        description="Your storefronts. Each has its own logo, contact details, GST TIN and bank accounts for its invoices."
         actions={
-          <Button variant="primary" icon={<Plus className="h-5 w-5" />} onClick={() => setEditing('new')}>
+          <Button variant="primary" icon={<Plus className="h-5 w-5" />} onClick={() => setAdding(true)}>
             New shop
           </Button>
         }
       />
       {shops.isLoading ? (
         <div className="grid gap-5 md:grid-cols-2">
-          {[0, 1].map(i => <Skeleton key={i} className="h-44 rounded-xl" />)}
+          {[0, 1].map(i => <Skeleton key={i} className="h-52 rounded-xl" />)}
         </div>
       ) : list.length === 0 ? (
         <Card>
@@ -69,33 +58,16 @@ export function ShopsPage() {
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {list.map(s => (
             <Card key={s.id} className="flex flex-col p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-subtle text-fg-2 ring-1 ring-inset ring-line">
-                    <Store className="h-5 w-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold text-fg">{s.name}</h2>
-                    {s.description && <p className="truncate text-sm text-fg-3">{s.description}</p>}
+              <Link to={`/shops/${s.id}`} className="focus-ring -m-1 flex items-center gap-4 rounded-lg p-1">
+                <ShopLogo shop={s} className="h-14 w-24 shrink-0" />
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-semibold text-fg">{s.name}</h2>
+                  {s.tagline && <p className="truncate text-sm text-fg-3">{s.tagline}</p>}
+                  <div className="mt-1.5">
+                    {isGstRegistered(s) ? <Badge color="success">GST registered</Badge> : <Badge>Not GST registered</Badge>}
                   </div>
                 </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button size="sm" variant="tertiary" iconOnly icon={<Pencil className="h-4 w-4" />} onClick={() => setEditing(s)}>
-                    Edit {s.name}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="tertiary"
-                    iconOnly
-                    icon={<Trash2 className="h-4 w-4" />}
-                    disabled={(s.product_count || 0) > 0 || list.length === 1}
-                    title={(s.product_count || 0) > 0 ? 'Move its products to another shop first' : list.length === 1 ? 'Keep at least one shop' : undefined}
-                    onClick={() => window.confirm(`Remove the shop "${s.name}"?`) && remove.mutate(s)}
-                  >
-                    Remove {s.name}
-                  </Button>
-                </div>
-              </div>
+              </Link>
               <dl className="mt-5 grid grid-cols-2 gap-3">
                 <div className="rounded-lg bg-subtle px-3.5 py-3 ring-1 ring-inset ring-line">
                   <dt className="text-xs text-fg-3">Products</dt>
@@ -106,14 +78,19 @@ export function ShopsPage() {
                   <dd className="tabular mt-0.5 text-xl font-semibold text-fg">{s.units_in_stock ?? 0}</dd>
                 </div>
               </dl>
-              <Button className="mt-4 self-start" variant="secondary" size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate(`/products?shop=${s.id}`)}>
-                View products
-              </Button>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button size="sm" variant="primary" onClick={() => navigate(`/shops/${s.id}`)}>
+                  Shop details
+                </Button>
+                <Button size="sm" icon={<ArrowRight className="h-4 w-4" />} onClick={() => navigate(`/products?shop=${s.id}`)}>
+                  View products
+                </Button>
+              </div>
             </Card>
           ))}
         </div>
       )}
-      {editing && <ShopModal shop={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
+      {adding && <ShopModal onClose={saved => { setAdding(false); if (saved) navigate(`/shops/${saved.id}`); }} />}
     </>
   );
 }

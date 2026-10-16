@@ -1,4 +1,4 @@
-import type { Order, ShopProfile } from '../types';
+import type { Order, Shop } from '../types';
 import { formatMVR, formatMaldivesDate } from './formatters';
 import { LOGO_ASPECT, LOGO_SRC } from '../ui/Logo';
 
@@ -17,6 +17,8 @@ const STATUS_LABELS: Record<string, string> = { unpaid: 'Unpaid', partially_paid
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise(resolve => {
     const img = new Image();
+    // Uploaded logos live on the storage domain; CORS keeps the canvas exportable
+    if (/^https?:/.test(src)) img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
     img.src = src;
@@ -53,12 +55,22 @@ function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): st
 }
 
 /** Draws a clean, shareable invoice for an order and returns it as a JPEG blob. */
-export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Promise<Blob> {
+export async function renderInvoice(rawOrder: Order, rawShop: Shop): Promise<Blob> {
   await document.fonts?.ready;
   // Customers receive this image: strip every web address from the text we print
-  const shop: ShopProfile = Object.fromEntries(
-    Object.entries(rawShop).map(([k, v]) => [k, k === 'email' ? String(v || '') : stripUrls(String(v || ''), k !== 'instagram')])
-  ) as unknown as ShopProfile;
+  const clean = (k: string, v: unknown) => (k === 'email' ? String(v || '') : stripUrls(String(v || ''), k !== 'instagram'));
+  const shop = {
+    name: clean('name', rawShop.name),
+    tagline: clean('tagline', rawShop.tagline),
+    phone: clean('phone', rawShop.phone),
+    email: clean('email', rawShop.email),
+    instagram: clean('instagram', rawShop.instagram),
+    address: clean('address', rawShop.address),
+    gst_tin: clean('gst_tin', rawShop.gst_tin),
+    invoice_note: clean('invoice_note', rawShop.invoice_note),
+    bank_details: clean('bank_details', rawShop.bank_details),
+    bank_accounts: (rawShop.bank_accounts || []).map(a => ({ bank: clean('bank', a.bank), account_name: clean('name', a.account_name), account_number: clean('number', a.account_number) })),
+  };
   const order: Order = {
     ...rawOrder,
     buyer_name: stripUrls(rawOrder.buyer_name),
@@ -67,12 +79,20 @@ export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Prom
     delivery_person_name: stripUrls(rawOrder.delivery_person_name),
     items: rawOrder.items.map(i => ({ ...i, product_name: stripUrls(i.product_name) })),
   };
-  const logo = await loadImage(LOGO_SRC);
 
   const W = 1000;
   const LOGO_W = 170;
+  const LOGO_H = LOGO_W / LOGO_ASPECT;
   const P = 64;
   const scale = 2;
+  const logoSrc = rawShop.logo_url || '';
+  const logo = logoSrc ? await loadImage(logoSrc) : null;
+  // Fit the logo in its box at its own proportions (never cropped or stretched)
+  const logoScale = logo ? Math.min(LOGO_W / logo.naturalWidth, LOGO_H / logo.naturalHeight) : 0;
+  const logoW = logo ? logo.naturalWidth * logoScale : 0;
+  const logoH = logo ? logo.naturalHeight * logoScale : 0;
+  // The Hali logo file has a little transparent margin; nudge it so its edge lines up with the text
+  const logoX = logoSrc === LOGO_SRC ? P - 8 : P;
   // Measure pass to size the canvas
   const draw = (ctx: CanvasRenderingContext2D, measureOnly: boolean): number => {
     let y = P;
@@ -87,11 +107,16 @@ export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Prom
     if (!measureOnly) {
       ctx.fillStyle = BRAND;
       ctx.fillRect(0, 0, W, 6);
-      // The logo file as supplied, scaled with its own proportions
-      if (logo) ctx.drawImage(logo, P - 8, y - 16, LOGO_W, LOGO_W / LOGO_ASPECT);
+      // The shop's logo file as supplied, scaled with its own proportions
+      if (logo) ctx.drawImage(logo, logoX, y - 16 + (LOGO_H - logoH) / 2, logoW, logoH);
     }
-    // The logo carries the shop name, so only the tagline sits beside it
-    if (shop.tagline) text(shop.tagline, P + LOGO_W + 8, y + 54, `400 15px ${FONT}`, SOFT);
+    if (logo) {
+      // The logo carries the shop name, so only the tagline sits beside it
+      if (shop.tagline) text(shop.tagline, logoX + logoW + 16, y + 54, `400 15px ${FONT}`, SOFT);
+    } else {
+      text(shop.name, P, y + 30, `700 26px ${FONT}`, NAVY);
+      if (shop.tagline) text(shop.tagline, P, y + 56, `400 15px ${FONT}`, SOFT);
+    }
     text('INVOICE', W - P, y + 26, `700 28px ${FONT}`, NAVY, 'right');
     text(order.order_number, W - P, y + 52, `500 16px ${FONT}`, MUTED, 'right');
     y += 100;
@@ -195,17 +220,20 @@ export async function renderInvoice(rawOrder: Order, rawShop: ShopProfile): Prom
     }
     y += 24;
 
-    // Bank details & note
-    if (shop.bank_details) {
+    // Bank accounts, other payment details & note
+    const accountLines = shop.bank_accounts
+      .filter(a => a.account_number)
+      .map(a => [a.bank, a.account_number, a.account_name].filter(Boolean).join('  ·  '));
+    if (accountLines.length || shop.bank_details) {
       ctx.font = `400 14px ${FONT}`;
-      const lines = wrap(ctx, shop.bank_details, W - 2 * P - 40);
+      const lines = [...accountLines, ...(shop.bank_details ? wrap(ctx, shop.bank_details, W - 2 * P - 40) : [])];
       const h = 44 + lines.length * 22;
       if (!measureOnly) {
         ctx.fillStyle = PANEL;
         ctx.fillRect(P, y, W - 2 * P, h);
       }
       text('PAYMENT DETAILS', P + 20, y + 28, `600 12px ${FONT}`, SOFT);
-      lines.forEach((l, i) => text(l, P + 20, y + 52 + i * 22, `400 14px ${FONT}`, TEXT));
+      lines.forEach((l, i) => text(l, P + 20, y + 52 + i * 22, `${i < accountLines.length ? 500 : 400} 14px ${FONT}`, TEXT));
       y += h + 24;
     }
     if (shop.invoice_note) {

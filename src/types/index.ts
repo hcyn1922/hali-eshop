@@ -58,10 +58,30 @@ export interface ForgotPasswordResponse {
 }
 
 /** One of the owner's storefronts (e.g. Hali eshop, Time Nest). */
+export interface ShopBankAccount {
+  /** Usually BML or MIB. */
+  bank: string;
+  account_name: string;
+  account_number: string;
+}
+
 export interface Shop {
   id: string;
   name: string;
   description?: string;
+  /** Logo image (uploaded file or the built-in Hali logo); shown unaltered. */
+  logo_url?: string;
+  tagline?: string;
+  phone?: string;
+  email?: string;
+  instagram?: string;
+  address?: string;
+  /** MIRA GST TIN. A shop with a TIN is treated as GST-registered. */
+  gst_tin?: string;
+  bank_accounts?: ShopBankAccount[];
+  /** Any other payment details printed on invoices. */
+  bank_details?: string;
+  invoice_note?: string;
   created_at: string;
   product_count?: number;
   units_in_stock?: number;

@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { Download, Printer } from 'lucide-react';
-import { useOrders, useProducts } from '../../app/queries';
+import { useOrders, useProducts, useShops } from '../../app/queries';
+import { orderForShop, productShopMap } from '../shops/shopUtils';
 import { formatMVR } from '../../lib/formatters';
 import type { Order, OrderChannel } from '../../types';
-import { BarChart, Button, Card, CardHeader, DetailRow, Input, PageHeader, Select, StatCard, Table } from '../../ui';
+import { Badge, BarChart, Button, Card, CardHeader, DetailRow, Input, PageHeader, Select, StatCard, Table } from '../../ui';
 import { CHANNELS } from '../orders/meta';
 
 type Period = 'this_month' | 'last_month' | 'last_30' | 'this_year' | 'all' | 'custom';
@@ -74,19 +75,30 @@ function BarList({ rows, format }: { rows: Array<{ label: string; value: number;
 export function ReportsPage() {
   const orders = useOrders();
   const products = useProducts();
+  const shops = useShops();
+  const [shopId, setShopId] = useState('all');
   const [period, setPeriod] = useState<Period>('this_month');
+  const shopList = shops.data || [];
+  const selectedShop = shopList.find(s => s.id === shopId);
+  const byProduct = useMemo(() => productShopMap(products.data), [products.data]);
+  // For one shop, keep only its order lines (delivery and payments split by its share)
+  const shopOrders = useMemo(
+    () => (selectedShop ? (orders.data || []).map(o => orderForShop(o, selectedShop.id, byProduct)).filter((o): o is Order => Boolean(o)) : orders.data || []),
+    [orders.data, selectedShop, byProduct]
+  );
+  const shopProducts = (products.data || []).filter(p => !selectedShop || p.shop_id === selectedShop.id);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [start, end] = rangeFor(period, from, to);
 
   const inRange = useMemo(
     () =>
-      (orders.data || []).filter(o => {
+      shopOrders.filter(o => {
         const d = new Date(o.order_date || o.created_at);
         return d >= start && d <= end;
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [orders.data, start.getTime(), end.getTime()]
+    [shopOrders, start.getTime(), end.getTime()]
   );
   const counted = inRange.filter(COUNTED);
 
@@ -163,16 +175,25 @@ export function ReportsPage() {
     value: inRange.filter(o => o.payment_method === m && o.stage !== 'cancelled').reduce((s, o) => s + (o.amount_received || 0), 0),
   }));
 
-  const stockAtCost = (products.data || []).reduce((s, p) => s + p.available_stock * p.wholesale_unit_cost, 0);
-  const stockAtRetail = (products.data || []).reduce((s, p) => s + p.available_stock * p.actual_listed_price, 0);
+  const stockAtCost = shopProducts.reduce((s, p) => s + p.available_stock * p.wholesale_unit_cost, 0);
+  const stockAtRetail = shopProducts.reduce((s, p) => s + p.available_stock * p.actual_listed_price, 0);
+
+  // GST: only shops with a GST TIN are GST-registered
+  const gstRows = (selectedShop ? [selectedShop] : shopList).map(s => {
+    const lines = counted.map(o => orderForShop(o, s.id, byProduct)).filter((o): o is Order => Boolean(o));
+    const taxable = lines.reduce((t, o) => t + o.subtotal_amount + (o.delivery_fee || 0), 0);
+    return { shop: s, registered: Boolean(s.gst_tin?.trim()), taxable };
+  });
+  const gstTaxable = gstRows.filter(r => r.registered).reduce((t, r) => t + r.taxable, 0);
 
   const periodLabel = `${start.getFullYear() === 2000 ? 'All time' : start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
   const exportCsv = () =>
-    downloadCsv(`hali-orders-${dayKey(start)}-${dayKey(end)}.csv`, [
-      ['Order', 'Date', 'Status', 'Channel', 'Buyer', 'Phone', 'Product', 'SKU', 'Qty', 'Unit price', 'Line total', 'Unit cost', 'Line cost', 'Delivery fee', 'Order total', 'Paid', 'Payment status'],
+    downloadCsv(`hali-orders-${selectedShop ? `${selectedShop.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-` : ''}${dayKey(start)}-${dayKey(end)}.csv`, [
+      ['Shop', 'Order', 'Date', 'Status', 'Channel', 'Buyer', 'Phone', 'Product', 'SKU', 'Qty', 'Unit price', 'Line total', 'Unit cost', 'Line cost', 'Delivery fee', 'Order total', 'Paid', 'Payment status'],
       ...inRange.flatMap(o =>
         o.items.map((i, idx) => [
+          shopList.find(s => s.id === byProduct.get(i.product_id))?.name || '',
           o.order_number,
           (o.order_date || o.created_at).slice(0, 10),
           o.stage,
@@ -198,7 +219,7 @@ export function ReportsPage() {
     <>
       <PageHeader
         title="Reports"
-        description={periodLabel}
+        description={`${selectedShop ? `${selectedShop.name} · ` : shopList.length > 1 ? 'All shops · ' : ''}${periodLabel}`}
         actions={
           <div className="no-print flex flex-wrap gap-2">
             <Button icon={<Printer className="h-4 w-4" />} onClick={() => window.print()}>
@@ -212,6 +233,16 @@ export function ReportsPage() {
       />
 
       <div className="no-print mb-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+        {shopList.length > 1 && (
+          <Select label="Shop" value={shopId} onChange={e => setShopId(e.target.value)} containerClassName="sm:w-52">
+            <option value="all">All shops</option>
+            {shopList.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+        )}
         <Select label="Period" value={period} onChange={e => setPeriod(e.target.value as Period)} containerClassName="sm:w-52">
           <option value="this_month">This month</option>
           <option value="last_month">Last month</option>
@@ -299,18 +330,42 @@ export function ReportsPage() {
 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
         <Card>
-          <CardHeader title="GST estimate (8%)" description="For MIRA returns, if your shop is GST-registered." />
-          <dl className="divide-y divide-line px-5 py-1">
-            <DetailRow label="Taxable sales (products + delivery)">{formatMVR(sales + fees)}</DetailRow>
-            <DetailRow label="GST if prices include GST (× 8/108)">{formatMVR(((sales + fees) * 8) / 108)}</DetailRow>
-            <DetailRow label="GST if charged on top (× 8%)">{formatMVR((sales + fees) * 0.08)}</DetailRow>
-          </dl>
+          <CardHeader
+            title="GST estimate (8%)"
+            description={selectedShop ? (selectedShop.gst_tin ? `${selectedShop.name} · GST TIN ${selectedShop.gst_tin}` : selectedShop.name) : 'Only shops with a GST TIN are counted.'}
+          />
+          {selectedShop && !selectedShop.gst_tin ? (
+            <p className="px-5 pb-5 text-sm text-fg-3">
+              {selectedShop.name} is not GST-registered (it has no GST TIN), so no GST is worked out. If it registers, add the TIN in its shop details.
+            </p>
+          ) : (
+            <>
+              {!selectedShop && (
+                <ul className="divide-y divide-line border-b border-line px-5">
+                  {gstRows.map(r => (
+                    <li key={r.shop.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-fg-2">{r.shop.name}</span>
+                        {r.registered ? <Badge color="success">GST</Badge> : <Badge>Not registered</Badge>}
+                      </span>
+                      <span className={`tabular ${r.registered ? 'text-fg' : 'text-fg-4 line-through'}`}>{formatMVR(r.taxable)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <dl className="divide-y divide-line px-5 py-1">
+                <DetailRow label="Taxable sales (products + delivery)">{formatMVR(gstTaxable)}</DetailRow>
+                <DetailRow label="GST if prices include GST (× 8/108)">{formatMVR((gstTaxable * 8) / 108)}</DetailRow>
+                <DetailRow label="GST if charged on top (× 8%)">{formatMVR(gstTaxable * 0.08)}</DetailRow>
+              </dl>
+            </>
+          )}
           <p className="px-5 pb-4 text-xs text-fg-4">An estimate only. Check the figures with MIRA guidance or your accountant before filing.</p>
         </Card>
         <Card>
           <CardHeader title="Stock value today" />
           <dl className="divide-y divide-line px-5 py-1">
-            <DetailRow label="Units in stock">{(products.data || []).reduce((s, p) => s + p.available_stock, 0)}</DetailRow>
+            <DetailRow label="Units in stock">{shopProducts.reduce((s, p) => s + p.available_stock, 0)}</DetailRow>
             <DetailRow label="At wholesale cost">{formatMVR(stockAtCost)}</DetailRow>
             <DetailRow label="At listed prices">{formatMVR(stockAtRetail)}</DetailRow>
             <DetailRow label="Potential profit">{formatMVR(stockAtRetail - stockAtCost)}</DetailRow>

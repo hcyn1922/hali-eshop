@@ -367,11 +367,11 @@ app.get('/api/shops', route((_req, res) => {
 }));
 
 app.post('/api/shops', need('catalog.manage'), route(async (req, res) => {
-  res.status(201).json(await db.createShop(req.body?.name, req.body?.description));
+  res.status(201).json(await db.createShop(req.body || {}, getAuth(req).role));
 }));
 
 app.put('/api/shops/:id', need('catalog.manage'), route(async (req, res) => {
-  res.json(await db.updateShop(req.params.id, req.body || {}));
+  res.json(await db.updateShop(req.params.id, req.body || {}, getAuth(req).role));
 }));
 
 app.delete('/api/shops/:id', need('catalog.manage'), route(async (req, res) => {

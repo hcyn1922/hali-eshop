@@ -216,8 +216,8 @@ export const api = {
 
   // Shops (storefronts)
   getShops: () => request<Shop[]>('/api/shops'),
-  createShop: (name: string, description?: string) => request<Shop>('/api/shops', post({ name, description })),
-  updateShop: (id: string, data: { name?: string; description?: string }) => request<Shop>(`/api/shops/${id}`, put(data)),
+  createShop: (data: Record<string, unknown>) => request<Shop>('/api/shops', post(data)),
+  updateShop: (id: string, data: Record<string, unknown>) => request<Shop>(`/api/shops/${id}`, put(data)),
   deleteShop: (id: string) => request<{ success: boolean }>(`/api/shops/${id}`, { method: 'DELETE' }),
 
   // Categories

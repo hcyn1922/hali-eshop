@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Layers, Pencil, X } from 'lucide-react';
-import { STOCK_KEYS, useCategories, useProducts } from '../../app/queries';
+import { STOCK_KEYS, useCategories, useProducts, useShops } from '../../app/queries';
 import { api } from '../../lib/api';
 import { calculateSuggestedPrice, formatMVR } from '../../lib/formatters';
-import type { PricingRule, Product } from '../../types';
+import type { PricingRule, Product, Shop } from '../../types';
 import { Badge, Button, Card, CardHeader, DetailRow, Input, Modal, PageHeader, Segmented, Select, Table, Toggle, cn, useToast } from '../../ui';
 
 type Rule = 'markup_on_cost' | 'gross_margin';
@@ -33,7 +33,31 @@ const ROUNDING_OPTIONS: Array<[Rounding, string]> = [
   ['9', 'Ends in 9'],
 ];
 
+/** Shop picker for pricing: choosing a shop switches GST on only if that shop has a GST TIN. */
+function ShopGstSelect({ value, onChange, allLabel }: { value: string; onChange: (shopId: string, shop?: Shop) => void; allLabel: string }) {
+  const shops = useShops();
+  const list = shops.data || [];
+  if (list.length < 2) return null;
+  return (
+    <Select label="Shop" value={value} onChange={e => onChange(e.target.value, list.find(s => s.id === e.target.value))}>
+      <option value="">{allLabel}</option>
+      {list.map(s => (
+        <option key={s.id} value={s.id}>
+          {s.name}
+          {s.gst_tin ? ' · GST registered' : ''}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+const gstHint = (shop?: Shop) =>
+  shop ? (shop.gst_tin ? `${shop.name} is GST-registered (TIN ${shop.gst_tin}).` : `${shop.name} is not GST-registered, so GST is off.`) : 'Only if the shop is registered for GST with MIRA.';
+
 function MarkupMarginCalculator() {
+  const shops = useShops();
+  const [shopId, setShopId] = useState('');
+  const shop = (shops.data || []).find(s => s.id === shopId);
   const [cost, setCost] = useState('650');
   const [rule, setRule] = useState<Rule>('markup_on_cost');
   const [pct, setPct] = useState('7.14');
@@ -48,6 +72,14 @@ function MarkupMarginCalculator() {
   return (
       <div className="grid gap-6 p-5 lg:grid-cols-2">
         <div className="flex flex-col gap-4">
+          <ShopGstSelect
+            value={shopId}
+            allLabel="Any shop"
+            onChange={(id, s) => {
+              setShopId(id);
+              if (s) setGst(Boolean(s.gst_tin));
+            }}
+          />
           <Input label="Wholesale unit cost" type="number" min="0" step="0.01" value={cost} onChange={e => setCost(e.target.value)} leading={<span className="text-xs">MVR</span>} />
           <div>
             <p className="mb-1.5 text-sm font-medium text-fg-2">Pricing rule</p>
@@ -68,7 +100,7 @@ function MarkupMarginCalculator() {
               </option>
             ))}
           </Select>
-          <Toggle checked={gst} onChange={setGst} label={`Add ${GST_RATE}% GST`} hint="Only if your shop is registered for GST with MIRA." />
+          <Toggle checked={gst} onChange={setGst} label={`Add ${GST_RATE}% GST`} hint={gstHint(shop)} />
         </div>
         <div className="flex flex-col rounded-xl bg-subtle p-5 ring-1 ring-inset ring-line">
           <p className="text-sm font-medium text-fg-3">Suggested selling price</p>
@@ -489,6 +521,9 @@ function BulkPricingModal({ products, onClose }: { products: Product[]; onClose:
   const categories = useCategories();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const shops = useShops();
+  const [shopId, setShopId] = useState('');
+  const shop = (shops.data || []).find(s => s.id === shopId);
   const [category, setCategory] = useState('');
   const [rule, setRule] = useState<Rule>('markup_on_cost');
   const [pct, setPct] = useState('15');
@@ -496,7 +531,7 @@ function BulkPricingModal({ products, onClose }: { products: Product[]; onClose:
   const [gst, setGst] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const targets = products.filter(p => (!category || p.category_id === category) && p.wholesale_unit_cost > 0);
+  const targets = products.filter(p => (!shopId || p.shop_id === shopId) && (!category || p.category_id === category) && p.wholesale_unit_cost > 0);
   const preview = targets.map(p => ({ p, next: priceFor(p.wholesale_unit_cost, rule, Number(pct) || 0, gst, rounding) }));
 
   const apply = async () => {
@@ -538,6 +573,14 @@ function BulkPricingModal({ products, onClose }: { products: Product[]; onClose:
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
+        <ShopGstSelect
+          value={shopId}
+          allLabel="All shops"
+          onChange={(id, s) => {
+            setShopId(id);
+            setGst(Boolean(s?.gst_tin));
+          }}
+        />
         <Select label="Products" value={category} onChange={e => setCategory(e.target.value)}>
           <option value="">All products with a cost</option>
           {(categories.data || []).map(c => (
@@ -559,7 +602,7 @@ function BulkPricingModal({ products, onClose }: { products: Product[]; onClose:
           ))}
         </Select>
         <div className="sm:col-span-2">
-          <Toggle checked={gst} onChange={setGst} label={`Include ${GST_RATE}% GST in the listed price`} />
+          <Toggle checked={gst} onChange={setGst} label={`Include ${GST_RATE}% GST in the listed price`} hint={gstHint(shop)} />
         </div>
       </div>
       <ul className="mt-5 max-h-64 divide-y divide-line overflow-y-auto rounded-lg border border-line text-sm">
@@ -579,6 +622,8 @@ function BulkPricingModal({ products, onClose }: { products: Product[]; onClose:
 
 export function PricingPage() {
   const products = useProducts();
+  const shops = useShops();
+  const [tableShop, setTableShop] = useState('');
   const queryClient = useQueryClient();
   const toast = useToast();
   const [bulk, setBulk] = useState(false);
@@ -624,9 +669,24 @@ export function PricingPage() {
       <PricingCalculator products={list} />
 
       <Card className="mt-5">
-        <CardHeader title="Product prices" description="Listed price vs the price your rule suggests." />
+        <CardHeader
+          title="Product prices"
+          description="Listed price vs the price your rule suggests."
+          actions={
+            (shops.data || []).length > 1 && (
+              <Select aria-label="Shop" value={tableShop} onChange={e => setTableShop(e.target.value)} className="sm:w-44">
+                <option value="">All shops</option>
+                {(shops.data || []).map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+            )
+          }
+        />
         <Table
-          rows={list}
+          rows={tableShop ? list.filter(p => p.shop_id === tableShop) : list}
           rowKey={p => p.id}
           columns={[
             {

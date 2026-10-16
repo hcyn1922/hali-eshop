@@ -2,12 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Circle, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../app/auth';
 import { can, ROLE_LABELS } from '../../app/permissions';
-import { keys, useAction, useShopProfile, useStatus } from '../../app/queries';
+import { keys, useAction, useShops, useStatus } from '../../app/queries';
+import { ShopDetailsForm } from '../shops/ShopDetailsForm';
 import { useTheme } from '../../app/theme';
 import { api } from '../../lib/api';
 import { supabase } from '../../supabaseClient';
-import type { ShopProfile } from '../../types';
-import { Badge, Button, Card, Input, PageHeader, Tabs, Textarea, cn } from '../../ui';
+import { Badge, Button, Card, Input, PageHeader, Select, Tabs, Textarea, cn } from '../../ui';
 
 type Tab = 'profile' | 'password' | 'shop' | 'setup';
 
@@ -125,42 +125,38 @@ function PasswordTab() {
 }
 
 function ShopTab() {
-  const shop = useShopProfile();
-  const [form, setForm] = useState<ShopProfile | null>(null);
-  useEffect(() => {
-    if (shop.data && !form) setForm(shop.data);
-  }, [shop.data, form]);
-  const save = useAction(() => api.updateShopProfile(form!), { invalidate: [keys.shop], success: 'Shop details saved.' });
-  if (!form) return null;
-  const set = (k: keyof ShopProfile) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm(f => ({ ...f!, [k]: e.target.value }));
+  const shops = useShops();
+  const list = shops.data || [];
+  const [shopId, setShopId] = useState('');
+  const shop = list.find(s => s.id === shopId) || list[0];
+  if (!shop) return null;
   return (
-    <Section
-      title="Shop details"
-      description="Printed on every invoice you send to buyers."
-      footer={
-        <Button variant="primary" loading={save.isPending} disabled={!form.name.trim()} onClick={() => save.mutate(undefined)}>
-          Save shop details
-        </Button>
-      }
-    >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Input label="Shop name" required value={form.name} onChange={set('name')} containerClassName="sm:col-span-2" />
-        <Input label="Tagline" value={form.tagline} onChange={set('tagline')} containerClassName="sm:col-span-2" placeholder="e.g. Perfumes & cosmetics" />
-        <Input label="Phone" type="tel" value={form.phone} onChange={set('phone')} />
-        <Input label="Email" type="email" value={form.email} onChange={set('email')} />
-        <Input label="Instagram" value={form.instagram} onChange={set('instagram')} placeholder="@yourshop" />
-        <Input label="GST TIN" value={form.gst_tin} onChange={set('gst_tin')} hint="Only if GST-registered." />
-        <Input label="Address" value={form.address} onChange={set('address')} containerClassName="sm:col-span-2" />
-        <Textarea label="Bank details for payment" rows={3} value={form.bank_details} onChange={set('bank_details')} containerClassName="sm:col-span-2" placeholder="Bank, account name and number" />
-        <Textarea label="Invoice footer note" rows={2} value={form.invoice_note} onChange={set('invoice_note')} containerClassName="sm:col-span-2" />
-      </div>
+    <Section title="Shop details" description="Each shop has its own logo, contacts, GST TIN and bank accounts, printed on its invoices.">
+      <Select label="Shop" value={shop.id} onChange={e => setShopId(e.target.value)} containerClassName="mb-6 sm:max-w-xs">
+        {list.map(s => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </Select>
+      <ShopDetailsForm
+        key={shop.id}
+        shop={shop}
+        footer={({ submit, busy, valid }) => (
+          <div className="mt-6 flex justify-end border-t border-line pt-5">
+            <Button variant="primary" loading={busy} disabled={!valid} onClick={submit}>
+              Save {shop.name}
+            </Button>
+          </div>
+        )}
+      />
     </Section>
   );
 }
 
 function SetupTab() {
   const status = useStatus();
-  const shop = useShopProfile();
+  const shops = useShops();
   const testEmail = useAction(api.sendTestEmail, { invalidate: [], success: r => r.message });
   const items = [
     {
@@ -196,9 +192,9 @@ function SetupTab() {
         : 'Add OPENAI_API_KEY in Vercel to turn product snapshots into studio photos from the product form.',
     },
     {
-      done: Boolean(shop.data?.phone || shop.data?.instagram),
+      done: (shops.data || []).length > 0 && (shops.data || []).every(s => s.phone || s.instagram || s.bank_accounts?.length),
       title: 'Shop details for invoices',
-      body: 'Add your phone, Instagram and bank details in the Shop details tab.',
+      body: 'Add each shop\'s contacts and BML / MIB bank accounts in the Shop details tab.',
     },
   ];
   return (
