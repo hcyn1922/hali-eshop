@@ -9,6 +9,14 @@ import { db } from './db.ts';
  */
 const RESEND_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails';
 
+/**
+ * Resend's shared test sender (onboarding@resend.dev) can only email the Resend account's
+ * own address, so staff copies need MAIL_FROM on a domain verified in Resend.
+ */
+export function staffEmailReady(): boolean {
+  return emailConfigured() && Boolean((process.env.MAIL_FROM || '').trim());
+}
+
 export function emailConfigured(): boolean {
   const key = process.env.RESEND_API_KEY || '';
   return Boolean(key) && !key.startsWith('your-');
@@ -31,7 +39,9 @@ export function appUrl(req: express.Request): string {
   return `${proto}://${host}`;
 }
 
-function layout(title: string, rows: Array<[string, string]>, body: string, link?: { href: string; label: string }) {
+const OWNER_FOOTER = 'You receive this because you are the owner of this Hali e-shop console.';
+
+function layout(title: string, rows: Array<[string, string]>, body: string, link?: { href: string; label: string }, footer = OWNER_FOOTER) {
   const table = rows
     .map(
       ([k, v]) =>
@@ -45,25 +55,30 @@ function layout(title: string, rows: Array<[string, string]>, body: string, link
 <tr><td style="padding:28px 28px 8px"><p style="margin:0;font-size:13px;color:#667085">Hali e-shop</p><h1 style="margin:6px 0 0;font-size:20px;color:#0f1736">${esc(title)}</h1></td></tr>
 <tr><td style="padding:12px 28px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${table}</table>${body}</td></tr>
 ${link ? `<tr><td style="padding:8px 28px 28px"><a href="${esc(link.href)}" style="display:inline-block;background:#0f1736;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:14px;font-weight:600">${esc(link.label)}</a></td></tr>` : ''}
-</table><p style="font-size:12px;color:#98a2b3;margin:16px 0 0">You receive this because you are the owner of this Hali e-shop console.</p>
+</table><p style="font-size:12px;color:#98a2b3;margin:16px 0 0">${esc(footer)}</p>
 </td></tr></table></body></html>`;
 }
 
-async function send(subject: string, html: string, text: string): Promise<{ ok: boolean; error?: string }> {
+interface Mail {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}
+
+/** Sends one email, or several in a single Resend batch call (one email per person, so nobody sees the others' addresses). */
+async function deliverOnce(mails: Mail[]): Promise<{ ok: boolean; error?: string }> {
   if (!emailConfigured()) return { ok: false, error: 'Email is not set up (RESEND_API_KEY is missing).' };
+  if (mails.length === 0) return { ok: true };
+  const from = process.env.MAIL_FROM || 'Hali e-shop <onboarding@resend.dev>';
+  const payload = mails.map(m => ({ from, to: [m.to], subject: m.subject, html: m.html, text: m.text }));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const res = await fetch(RESEND_URL, {
+    const res = await fetch(payload.length === 1 ? RESEND_URL : `${RESEND_URL}/batch`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: process.env.MAIL_FROM || 'Hali e-shop <onboarding@resend.dev>',
-        to: [recipient()],
-        subject,
-        html,
-        text,
-      }),
+      body: JSON.stringify(payload.length === 1 ? payload[0] : payload),
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -78,6 +93,35 @@ async function send(subject: string, html: string, text: string): Promise<{ ok: 
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** If a batch is refused (e.g. one bad address), the owner's copy (always first) is still sent on its own. */
+async function deliver(mails: Mail[]): Promise<{ ok: boolean; error?: string }> {
+  const result = await deliverOnce(mails);
+  if (!result.ok && mails.length > 1) {
+    const owner = await deliverOnce([mails[0]]);
+    return owner.ok ? { ok: true, error: `Staff copies were not sent: ${result.error}` } : owner;
+  }
+  return result;
+}
+
+function send(subject: string, html: string, text: string) {
+  return deliver([{ to: recipient(), subject, html, text }]);
+}
+
+const ROLE_NAMES: Record<string, string> = { sales: 'Sales', inventory: 'Inventory lead', marketing: 'Marketing' };
+
+/** The owner's copy plus one for each staff member whose role gets order emails. */
+function orderMails(subject: string, title: string, rows: Array<[string, string]>, body: string, link: { href: string; label: string }, text: string): Mail[] {
+  const owner = recipient().toLowerCase();
+  const mails: Mail[] = [{ to: owner, subject, html: layout(title, rows, body, link), text }];
+  if (!staffEmailReady()) return mails;
+  for (const s of db.getOrderEmailStaff()) {
+    if (s.email === owner || mails.some(m => m.to === s.email)) continue;
+    const footer = `You receive this because your role (${ROLE_NAMES[s.role] || s.role}) gets order emails. The shop owner can turn this off in Roles & permissions.`;
+    mails.push({ to: s.email, subject, html: layout(title, rows, body, link, footer), text });
+  }
+  return mails;
 }
 
 function orderRows(order: Order): Array<[string, string]> {
@@ -102,25 +146,25 @@ function itemsHtml(order: Order) {
 
 export async function notifyNewOrder(order: Order, createdBy: string, baseUrl: string) {
   const subject = `New order ${order.order_number} · ${mvr(order.total_amount)}`;
-  const html = layout('New order placed', [...orderRows(order), ['Taken by', esc(createdBy)]], itemsHtml(order), {
-    href: `${baseUrl}/orders/${order.id}`,
-    label: 'Open order',
-  });
+  const link = { href: `${baseUrl}/orders/${order.id}`, label: 'Open order' };
   const text = `New order ${order.order_number} from ${order.buyer_name} (${mvr(order.total_amount)}), taken by ${createdBy}.\n${order.items
     .map(i => `${i.quantity} x ${i.product_name}`)
     .join('\n')}`;
-  return send(subject, html, text);
+  return deliver(orderMails(subject, 'New order placed', [...orderRows(order), ['Taken by', esc(createdBy)]], itemsHtml(order), link, text));
 }
 
 export async function notifyDelivered(order: Order, baseUrl: string) {
   const subject = `Delivered: ${order.order_number} to ${order.buyer_name}`;
-  const html = layout(
-    'Order delivered',
-    [...orderRows(order), ['Courier', esc(order.delivery_person_name || '—')]],
-    itemsHtml(order),
-    { href: `${baseUrl}/orders/${order.id}`, label: 'Open order' }
+  return deliver(
+    orderMails(
+      subject,
+      'Order delivered',
+      [...orderRows(order), ['Courier', esc(order.delivery_person_name || '—')]],
+      itemsHtml(order),
+      { href: `${baseUrl}/orders/${order.id}`, label: 'Open order' },
+      `${order.order_number} was delivered to ${order.buyer_name}. Total ${mvr(order.total_amount)}.`
+    )
   );
-  return send(subject, html, `${order.order_number} was delivered to ${order.buyer_name}. Total ${mvr(order.total_amount)}.`);
 }
 
 export async function notifyAccessRequest(staff: StaffProfile, baseUrl: string) {

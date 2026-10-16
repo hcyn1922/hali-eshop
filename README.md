@@ -40,7 +40,7 @@ The owner decides what each role can do in **Staff & access → Roles & permissi
 | **Inventory lead** | See and process orders; return goods to stock; see buyers; manage couriers, products, stock and suppliers; see shop sales totals. |
 | **Marketing** | Plan social posts; see shop sales totals. |
 
-Switchable features: see orders, create orders, process orders, record payments, return goods to stock, see buyers, add/edit buyers, manage couriers, manage products & stock, see suppliers, manage suppliers, plan social posts, see shop sales totals, see costs & profit, pricing, reports. Turning one on also turns on what it needs (for example, *Reports* needs *See costs & profit*). Costs and margins are removed by the server for any role without *See costs & profit*.
+Switchable features: see orders, create orders, process orders, record payments, return goods to stock, see buyers, add/edit buyers, manage couriers, manage products & stock, see suppliers, manage suppliers, plan social posts, see shop sales totals, see costs & profit, pricing, reports, order emails (off for every role as standard). Turning one on also turns on what it needs (for example, *Reports* needs *See costs & profit*). Costs and margins are removed by the server for any role without *See costs & profit*.
 
 Always owner-only: staff management, sign-up approvals, shop details, email setup, sample data and deleting couriers.
 
@@ -113,6 +113,7 @@ The code lives in the private repository **hcyn1922/hali-eshop**. Vercel deploys
 3. In Vercel → **Settings → Environment Variables** add `RESEND_API_KEY` with that key, then **Redeploy**.
 4. In the app, open **Settings → Setup** and click **Send a test email**.
 5. Later, to send from your own address (e.g. `orders@hali.mv`) or to another inbox, verify your domain in Resend → **Domains**, then set `MAIL_FROM` (and `NOTIFY_EMAIL` if it should go elsewhere).
+6. **Staff order emails:** switch on **Order emails** for a role in **Roles & permissions** and everyone in that role also gets the new-order and delivered emails at their sign-in address (one email each, so nobody sees the others' addresses). This needs step 5 (a verified domain and `MAIL_FROM`); until then only the owner is emailed. If Resend refuses the staff copies, the owner's email is still sent.
 
 ### 5. Turn on AI studio photos (optional)
 

@@ -2260,6 +2260,13 @@ class DatabaseEngine {
     return PRIMARY_OWNER_EMAIL;
   }
 
+  /** Active staff (not owners) whose role has "Order emails" switched on. */
+  public getOrderEmailStaff(): Array<{ email: string; full_name: string; role: StaffRole }> {
+    return this.data.staff_profiles
+      .filter(s => s.role !== 'owner' && s.is_active && (s.approval_status ?? 'approved') === 'approved' && s.email && this.can(s.role, 'alerts.email'))
+      .map(s => ({ email: s.email.trim().toLowerCase(), full_name: s.full_name, role: s.role }));
+  }
+
   public getDeliveryHandovers(): DeliveryHandover[] {
     return this.data.delivery_handovers.sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()

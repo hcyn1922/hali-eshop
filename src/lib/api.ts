@@ -169,6 +169,7 @@ export const api = {
       storage: string;
       supabaseConfigured: boolean;
       emailConfigured: boolean;
+      staffEmailReady?: boolean;
       notifyEmail?: string;
       aiPhotos?: { enabled: boolean; model: string; dailyLimit: number; usedToday: number };
     }>(

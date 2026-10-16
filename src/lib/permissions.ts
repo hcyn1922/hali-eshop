@@ -21,14 +21,15 @@ export type Permission =
   | 'sales.view'
   | 'costs.view'
   | 'pricing.manage'
-  | 'reports.view';
+  | 'reports.view'
+  | 'alerts.email';
 
 export type ConfigurableRole = 'sales' | 'inventory' | 'marketing';
 export const CONFIGURABLE_ROLES: ConfigurableRole[] = ['sales', 'inventory', 'marketing'];
 
 export interface PermissionInfo {
   key: Permission;
-  group: 'Orders' | 'Buyers & delivery' | 'Catalog & stock' | 'Business';
+  group: 'Orders' | 'Buyers & delivery' | 'Catalog & stock' | 'Business' | 'Notifications';
   label: string;
   description: string;
   /** Permissions that are switched on automatically with this one. */
@@ -54,6 +55,7 @@ export const PERMISSIONS: PermissionInfo[] = [
   { key: 'costs.view', group: 'Business', label: 'See costs & profit', description: 'Wholesale costs, batch costs, markups, margins and profit.', sensitive: true },
   { key: 'pricing.manage', group: 'Business', label: 'Pricing', description: 'The pricing page: set rules and change prices in bulk.', requires: ['costs.view'], sensitive: true },
   { key: 'reports.view', group: 'Business', label: 'Reports', description: 'Sales and profit reports, CSV export and the GST estimate.', requires: ['costs.view', 'sales.view', 'orders.view'], sensitive: true },
+  { key: 'alerts.email', group: 'Notifications', label: 'Order emails', description: 'An email to their sign-in address for every new order and every completed delivery.', requires: ['orders.view', 'buyers.view'] },
 ];
 
 export const ALL_PERMISSIONS: Permission[] = PERMISSIONS.map(p => p.key);

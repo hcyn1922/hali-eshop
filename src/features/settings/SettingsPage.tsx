@@ -180,7 +180,7 @@ function SetupTab() {
       done: Boolean(status.data?.emailConfigured),
       title: 'Owner email notifications',
       body: status.data?.emailConfigured
-        ? `New orders, deliveries and access requests are emailed to ${status.data.notifyEmail}.`
+        ? `New orders, deliveries and access requests are emailed to ${status.data.notifyEmail}. Staff whose role has "Order emails" also get new-order and delivery emails${status.data.staffEmailReady ? '' : ' once MAIL_FROM is set to a domain verified in Resend'}.`
         : 'Add RESEND_API_KEY in Vercel to get an email for new orders, deliveries and access requests.',
       action: status.data?.emailConfigured && (
         <Button size="sm" className="mt-3" loading={testEmail.isPending} onClick={() => testEmail.mutate(undefined)}>

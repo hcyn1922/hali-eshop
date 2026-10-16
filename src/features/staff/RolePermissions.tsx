@@ -12,14 +12,16 @@ import {
   type PermissionInfo,
 } from '../../lib/permissions';
 import { ROLE_LABELS } from '../../app/permissions';
+import { useStatus } from '../../app/queries';
 import { Badge, Button, Card, CardHeader, Modal, Segmented, Skeleton, Toggle, useToast } from '../../ui';
 
-const GROUPS: PermissionInfo['group'][] = ['Orders', 'Buyers & delivery', 'Catalog & stock', 'Business'];
+const GROUPS: PermissionInfo['group'][] = ['Orders', 'Buyers & delivery', 'Catalog & stock', 'Business', 'Notifications'];
 const label = (key: Permission) => PERMISSIONS.find(p => p.key === key)?.label || key;
 
 /** Owner screen: switch features on or off for each staff role. */
 export function RolePermissions() {
   const queryClient = useQueryClient();
+  const status = useStatus();
   const toast = useToast();
   const matrix = useQuery({ queryKey: ['role-permissions'], queryFn: api.getRolePermissions });
   const [role, setRole] = useState<ConfigurableRole>('sales');
@@ -125,6 +127,13 @@ export function RolePermissions() {
                           <>
                             {p.description}
                             {!on && needs.length > 0 && <span className="block text-fg-4">Also turns on: {needs.map(label).join(', ')}.</span>}
+                            {p.key === 'alerts.email' && status.data && !status.data.staffEmailReady && (
+                              <span className="mt-1 block text-warning-700 dark:text-warning-500">
+                                {status.data.emailConfigured
+                                  ? 'Staff emails start once a sending domain is verified in Resend and MAIL_FROM is set in Vercel. Until then only you get them.'
+                                  : 'Emails start once RESEND_API_KEY is added in Vercel.'}
+                              </span>
+                            )}
                           </>
                         }
                       />

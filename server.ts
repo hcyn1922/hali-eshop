@@ -7,7 +7,7 @@ import { StoreConflictError } from './server/store.ts';
 import { allow, extractToken, getAuth, HttpError, need, requireAuth, resolveAuth } from './server/auth.ts';
 import { aiPhotoConfig, generatePhotos, inspectProduct, parseApproved, parseStudioRequest, parseViews } from './server/aiPhotos.ts';
 import { LOCAL_UPLOAD_DIR, readPaymentSlip, savePaymentSlip, saveProductImage } from './server/uploads.ts';
-import { appUrl, emailConfigured, notificationRecipient, notifyAccessRequest, notifyDelivered, notifyNewOrder, sendTestEmail } from './server/notify.ts';
+import { appUrl, emailConfigured, staffEmailReady, notificationRecipient, notifyAccessRequest, notifyDelivered, notifyNewOrder, sendTestEmail } from './server/notify.ts';
 import type { StaffRole } from './src/types/index.ts';
 
 dotenv.config();
@@ -246,6 +246,7 @@ app.get('/api/status', route((req, res) => {
     storage: db.storageBackend,
     supabaseConfigured: db.storageBackend === 'supabase',
     emailConfigured: emailConfigured(),
+    staffEmailReady: staffEmailReady(),
     aiPhotos: (() => {
       const c = aiPhotoConfig();
       return { enabled: c.enabled, model: c.imageModel, dailyLimit: c.dailyLimit, usedToday: db.aiPhotosUsedToday(getAuth(req).staffId) };
