@@ -11,6 +11,7 @@ export const keys = {
   orders: ['orders'] as const,
   products: ['products'] as const,
   categories: ['categories'] as const,
+  shops: ['shops'] as const,
   suppliers: ['suppliers'] as const,
   couriers: ['couriers'] as const,
   buyers: ['buyers'] as const,
@@ -35,6 +36,9 @@ export function useOrders() {
 }
 export function useProducts() {
   return useQuery({ queryKey: keys.products, queryFn: api.getProducts });
+}
+export function useShops() {
+  return useQuery({ queryKey: keys.shops, queryFn: api.getShops });
 }
 export function useCategories() {
   return useQuery({ queryKey: keys.categories, queryFn: api.getCategories });
@@ -104,4 +108,4 @@ export function useAction<TArgs, TResult>(
 /** Everything an order change can affect. */
 export const ORDER_KEYS = [keys.orders, keys.products, keys.metrics, keys.buyers, keys.movements(), ['movements'], ['batches']] as const;
 /** Everything a stock change can affect. */
-export const STOCK_KEYS = [keys.products, keys.metrics, ['movements'], ['batches'], keys.status] as const;
+export const STOCK_KEYS = [keys.products, keys.metrics, ['movements'], ['batches'], keys.status, keys.shops] as const;

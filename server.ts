@@ -360,6 +360,26 @@ app.put('/api/pricing/delivery-rate', need('pricing.manage'), route(async (req, 
 }));
 
 // -----------------------------------------------------------------------------
+// Shops (storefronts)
+// -----------------------------------------------------------------------------
+app.get('/api/shops', route((_req, res) => {
+  res.json(db.getShops());
+}));
+
+app.post('/api/shops', need('catalog.manage'), route(async (req, res) => {
+  res.status(201).json(await db.createShop(req.body?.name, req.body?.description));
+}));
+
+app.put('/api/shops/:id', need('catalog.manage'), route(async (req, res) => {
+  res.json(await db.updateShop(req.params.id, req.body || {}));
+}));
+
+app.delete('/api/shops/:id', need('catalog.manage'), route(async (req, res) => {
+  await db.deleteShop(req.params.id);
+  res.json({ success: true });
+}));
+
+// -----------------------------------------------------------------------------
 // Categories & suppliers
 // -----------------------------------------------------------------------------
 app.get('/api/categories', route((_req, res) => {

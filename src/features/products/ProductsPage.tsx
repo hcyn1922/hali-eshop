@@ -3,10 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Boxes, LayoutGrid, List, PackagePlus, Plus, Search } from 'lucide-react';
 import { useAuth } from '../../app/auth';
 import { can } from '../../app/permissions';
-import { useCategories, useProducts } from '../../app/queries';
+import { useCategories, useProducts, useShops } from '../../app/queries';
 import { formatMVR } from '../../lib/formatters';
 import type { Product } from '../../types';
-import { Badge, Button, Card, EmptyState, Input, PageHeader, Segmented, Select, Skeleton, Table } from '../../ui';
+import { Badge, Button, Card, EmptyState, Input, PageHeader, Segmented, Select, Skeleton, Table, Tabs } from '../../ui';
 import { ProductFormModal, ReceiveStockModal } from './ProductForms';
 import { ProductThumb } from './ProductThumb';
 import { stockState } from './meta';
@@ -18,6 +18,7 @@ export function ProductsPage() {
   const navigate = useNavigate();
   const products = useProducts();
   const categories = useCategories();
+  const shops = useShops();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
@@ -25,18 +26,27 @@ export function ProductsPage() {
   const [adding, setAdding] = useState(false);
   const [receiving, setReceiving] = useState(false);
   const view = (params.get('view') as 'grid' | 'list') || 'grid';
+  const shop = params.get('shop') || 'all';
+  const setParam = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
+  const shopName = shop === 'all' ? '' : (shops.data || []).find(s => s.id === shop)?.name || '';
+  const inShop = useMemo(() => (products.data || []).filter(p => shop === 'all' || p.shop_id === shop), [products.data, shop]);
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (products.data || []).filter(p => {
-      if (q && ![p.name, p.sku, p.category_name, p.supplier_name].some(v => (v || '').toLowerCase().includes(q))) return false;
+    return inShop.filter(p => {
+      if (q && ![p.name, p.sku, p.brand, p.model, p.size, p.category_name, p.supplier_name].some(v => (v || '').toLowerCase().includes(q))) return false;
       if (category && p.category_id !== category) return false;
       if (stock === 'low') return p.is_active && p.available_stock > 0 && p.available_stock <= p.low_stock_threshold;
       if (stock === 'out') return p.is_active && p.available_stock <= 0;
       if (stock === 'inactive') return !p.is_active;
       return true;
     });
-  }, [products.data, query, category, stock]);
+  }, [inShop, query, category, stock]);
 
   const showCost = can.seeCosts(role);
   const open = (p: Product) => navigate(`/products/${p.id}`);
@@ -60,10 +70,22 @@ export function ProductsPage() {
         }
       />
 
+      {(shops.data || []).length > 0 && (
+        <Tabs
+          className="mb-5"
+          value={shop}
+          onChange={v => setParam('shop', v === 'all' ? '' : v)}
+          items={[
+            { key: 'all', label: 'All shops', count: (products.data || []).length },
+            ...(shops.data || []).map(s => ({ key: s.id, label: s.name, count: (products.data || []).filter(p => p.shop_id === s.id).length })),
+          ]}
+        />
+      )}
+
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center">
         <Input
           aria-label="Search products"
-          placeholder="Search name, SKU, category or supplier"
+          placeholder="Search name, brand, model, SKU or supplier"
           value={query}
           onChange={e => setQuery(e.target.value)}
           leading={<Search className="h-5 w-5" />}
@@ -92,7 +114,7 @@ export function ProductsPage() {
               { key: 'list', label: 'List', icon: <List className="h-4 w-4" /> },
             ]}
             value={view}
-            onChange={v => setParams({ view: v }, { replace: true })}
+            onChange={v => setParam('view', v)}
           />
         </div>
       </div>
@@ -107,11 +129,11 @@ export function ProductsPage() {
         <Card>
           <EmptyState
             icon={<Boxes className="h-6 w-6" />}
-            title={(products.data || []).length ? 'No products match' : 'No products yet'}
-            description={(products.data || []).length ? 'Try clearing the filters.' : 'Add your first product to start taking orders.'}
+            title={inShop.length ? 'No products match' : shopName ? `No products in ${shopName} yet` : 'No products yet'}
+            description={inShop.length ? 'Try clearing the filters.' : 'Add your first product to start taking orders.'}
             action={
               can.manageCatalog(role) &&
-              !(products.data || []).length && (
+              !inShop.length && (
                 <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setAdding(true)}>
                   New product
                 </Button>
@@ -132,8 +154,9 @@ export function ProductsPage() {
               >
                 <ProductThumb product={p} className="aspect-square w-full rounded-none border-0 border-b border-line" />
                 <div className="flex flex-1 flex-col p-3 sm:p-4">
-                  <p className="truncate text-xs text-fg-4">{p.category_name}</p>
+                  <p className="truncate text-xs text-fg-4">{[shop === 'all' ? p.shop_name : '', p.brand || p.category_name].filter(Boolean).join(' · ')}</p>
                   <p className="mt-0.5 line-clamp-2 text-sm font-semibold text-fg">{p.name}</p>
+                  {(p.model || p.size) && <p className="mt-0.5 truncate text-xs text-fg-3">{[p.model, p.size].filter(Boolean).join(' · ')}</p>}
                   <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-3">
                     <span className="tabular text-sm font-semibold text-fg">{formatMVR(p.actual_listed_price)}</span>
                     <Badge color={s.color}>{s.label}</Badge>
@@ -159,11 +182,12 @@ export function ProductsPage() {
                     <ProductThumb product={p} className="h-10 w-10" />
                     <div className="min-w-0">
                       <p className="truncate font-medium text-fg">{p.name}</p>
-                      <p className="truncate text-fg-3">{p.sku}</p>
+                      <p className="truncate text-fg-3">{[p.sku, p.brand, p.model, p.size].filter(Boolean).join(' · ')}</p>
                     </div>
                   </div>
                 ),
               },
+              ...(shop === 'all' ? [{ key: 'shop', header: 'Shop', hideOnMobile: true, render: (p: Product) => p.shop_name || '—' }] : []),
               { key: 'category', header: 'Category', hideOnMobile: true, render: p => p.category_name },
               { key: 'price', header: 'Price', align: 'right', render: p => <span className="tabular font-medium text-fg">{formatMVR(p.actual_listed_price)}</span> },
               ...(showCost
@@ -199,6 +223,7 @@ export function ProductsPage() {
       {adding && (
         <ProductFormModal
           open
+          defaultShopId={shop === 'all' ? undefined : shop}
           onClose={saved => {
             setAdding(false);
             if (saved) navigate(`/products/${saved.id}`);

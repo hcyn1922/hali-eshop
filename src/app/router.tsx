@@ -18,6 +18,7 @@ import { ProductDetailPage } from '../features/products/ProductDetailPage';
 import { StockLedgerPage } from '../features/products/StockLedgerPage';
 import { SuppliersPage } from '../features/suppliers/SuppliersPage';
 import { SocialPage } from '../features/social/SocialPage';
+import { ShopsPage } from '../features/shops/ShopsPage';
 import { PricingPage } from '../features/pricing/PricingPage';
 import { ReportsPage } from '../features/reports/ReportsPage';
 import { StaffPage } from '../features/staff/StaffPage';
@@ -86,6 +87,7 @@ export const router = createBrowserRouter([
       { path: '/products/:productId', element: <ProductDetailPage /> },
       { path: '/stock', element: <StockLedgerPage /> },
       { path: '/suppliers', element: <Allow when={r => can.viewSuppliers(r) || can.manageCatalog(r) || can.manageCouriers(r)}><SuppliersPage /></Allow> },
+      { path: '/shops', element: <Allow when={can.manageCatalog}><ShopsPage /></Allow> },
       { path: '/social', element: <Allow when={can.planPosts}><SocialPage /></Allow> },
       { path: '/pricing', element: <Allow when={can.viewPricing}><PricingPage /></Allow> },
       { path: '/reports', element: <Allow when={can.viewReports}><ReportsPage /></Allow> },

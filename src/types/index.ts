@@ -57,6 +57,16 @@ export interface ForgotPasswordResponse {
   message: string;
 }
 
+/** One of the owner's storefronts (e.g. Hali eshop, Time Nest). */
+export interface Shop {
+  id: string;
+  name: string;
+  description?: string;
+  created_at: string;
+  product_count?: number;
+  units_in_stock?: number;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -108,6 +118,11 @@ export interface Product {
   category_name?: string;
   supplier_id: string;
   supplier_name?: string;
+  shop_id?: string;
+  shop_name?: string;
+  brand?: string;
+  model?: string;
+  size?: string;
   description?: string;
   images: ProductImage[];
   wholesale_unit_cost: number; // hidden from non-owners on API if restricted

@@ -13,6 +13,7 @@ import {
 import type {
   StaffProfile,
   Category,
+  Shop,
   Supplier,
   DeliveryService,
   Product,
@@ -65,6 +66,12 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production' || Boolean(process.e
 
 /** The bootstrap owner account. It is always kept active with the owner role. */
 export const PRIMARY_OWNER_EMAIL = (process.env.HALI_OWNER_EMAIL || 'hasanyone@gmail.com').trim().toLowerCase();
+
+/** The storefronts the business started with (fixed ids so they are only created once). */
+const DEFAULT_SHOPS: Array<Omit<Shop, 'created_at'>> = [
+  { id: 'shop-hali-eshop', name: 'Hali eshop', description: '' },
+  { id: 'shop-time-nest', name: 'Time Nest', description: '' },
+];
 
 /**
  * Demo passwords seeded ONLY in local development so the RBAC roles can be tried out.
@@ -155,6 +162,7 @@ export interface PasswordResetCode {
 interface DatabaseSchema {
   staff_profiles: StaffProfile[];
   categories: Category[];
+  shops?: Shop[];
   suppliers: Supplier[];
   delivery_services: DeliveryService[];
   products: Product[];
@@ -356,6 +364,16 @@ class DatabaseEngine {
       password_reset_codes: parsed.password_reset_codes || [],
       ai_photo_log: parsed.ai_photo_log || [],
     } as DatabaseSchema;
+    // The shop's two storefronts, created once; products from before shops existed belong to Hali eshop
+    if (parsed.shops === undefined) {
+      const now = new Date().toISOString();
+      merged.shops = DEFAULT_SHOPS.map(s => ({ ...s, created_at: now }));
+    }
+    const shops = merged.shops || [];
+    const fallbackShop = shops.find(s => s.id === DEFAULT_SHOPS[0].id) || shops[0];
+    if (fallbackShop) {
+      merged.products = merged.products.map(p => (p.shop_id && shops.some(s => s.id === p.shop_id) ? p : { ...p, shop_id: fallbackShop.id }));
+    }
     this.ensureBootstrapAccounts(merged);
     return merged;
   }
@@ -1346,6 +1364,81 @@ class DatabaseEngine {
   // =========================================================================
   // CATEGORIES
   // =========================================================================
+  // =========================================================================
+  // SHOPS (storefronts)
+  // =========================================================================
+  public getShops(): Shop[] {
+    const shops = this.data.shops || [];
+    return shops.map(s => {
+      const products = this.data.products.filter(p => this.shopOf(p) === s.id);
+      return { ...s, product_count: products.length, units_in_stock: products.reduce((n, p) => n + (p.available_stock || 0), 0) };
+    });
+  }
+
+  private shopName(id?: string): string | undefined {
+    return (this.data.shops || []).find(s => s.id === id)?.name;
+  }
+
+  /** A product's shop; anything without a valid one belongs to Hali eshop (or the first shop). */
+  private shopOf(p: Product): string | undefined {
+    const shops = this.data.shops || [];
+    if (p.shop_id && shops.some(s => s.id === p.shop_id)) return p.shop_id;
+    return (shops.find(s => s.id === DEFAULT_SHOPS[0].id) || shops[0])?.id;
+  }
+
+  private cleanShopName(value: unknown, exceptId?: string): string {
+    const name = String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!name) throw new Error('Shop name is required.');
+    if ((this.data.shops || []).some(s => s.id !== exceptId && s.name.toLowerCase() === name.toLowerCase())) {
+      throw new Error(`A shop called "${name}" already exists.`);
+    }
+    return name;
+  }
+
+  public async createShop(name: unknown, description?: unknown): Promise<Shop> {
+    const shop: Shop = {
+      id: crypto.randomUUID(),
+      name: this.cleanShopName(name),
+      description: String(description ?? '').trim().slice(0, 300),
+      created_at: new Date().toISOString(),
+    };
+    this.data.shops = [...(this.data.shops || []), shop];
+    await this.persist();
+    return shop;
+  }
+
+  public async updateShop(id: string, updates: { name?: unknown; description?: unknown }): Promise<Shop> {
+    const shop = (this.data.shops || []).find(s => s.id === id);
+    if (!shop) throw new Error('Shop not found.');
+    if (updates.name !== undefined) shop.name = this.cleanShopName(updates.name, id);
+    if (updates.description !== undefined) shop.description = String(updates.description ?? '').trim().slice(0, 300);
+    await this.persist();
+    return shop;
+  }
+
+  public async deleteShop(id: string): Promise<void> {
+    const inUse = this.data.products.filter(p => this.shopOf(p) === id).length;
+    if (inUse > 0) throw new Error(`This shop still has ${inUse} product${inUse === 1 ? '' : 's'}. Move them to another shop first.`);
+    const shops = this.data.shops || [];
+    if (!shops.some(s => s.id === id)) throw new Error('Shop not found.');
+    if (shops.length === 1) throw new Error('Keep at least one shop.');
+    this.data.shops = shops.filter(s => s.id !== id);
+    await this.persist();
+  }
+
+  /** Validates shop, brand, model and size on a product create/update. */
+  private cleanProductDetails(updates: Partial<Product>, isCreate: boolean) {
+    for (const field of ['brand', 'model', 'size'] as const) {
+      if (updates[field] !== undefined) updates[field] = String(updates[field] ?? '').trim().replace(/\s+/g, ' ').slice(0, 80);
+    }
+    const shops = this.data.shops || [];
+    if (updates.shop_id !== undefined || isCreate) {
+      if (!updates.shop_id && isCreate) updates.shop_id = shops[0]?.id;
+      if (updates.shop_id && !shops.some(s => s.id === updates.shop_id)) throw new Error('Choose one of your shops.');
+    }
+    delete (updates as any).shop_name;
+  }
+
   public getCategories(): Category[] {
     return this.data.categories;
   }
@@ -1505,6 +1598,8 @@ class DatabaseEngine {
         ...p,
         category_name: cat?.name || 'Uncategorized',
         supplier_name: supp?.name || 'Unknown Supplier',
+        shop_id: this.shopOf(p),
+        shop_name: this.shopName(this.shopOf(p)),
         // Redact wholesale cost and the pricing percentage (price ÷ markup would reveal the cost)
         wholesale_unit_cost: isOwner ? p.wholesale_unit_cost : 0,
         pricing_rule_percentage: isOwner ? p.pricing_rule_percentage : 0,
@@ -1524,6 +1619,8 @@ class DatabaseEngine {
       ...p,
       category_name: cat?.name,
       supplier_name: supp?.name,
+      shop_id: this.shopOf(p),
+      shop_name: this.shopName(this.shopOf(p)),
       wholesale_unit_cost: isOwner ? p.wholesale_unit_cost : 0,
       pricing_rule_percentage: isOwner ? p.pricing_rule_percentage : 0,
       shop_price: isOwner ? p.shop_price : undefined,
@@ -1548,6 +1645,7 @@ class DatabaseEngine {
     if (!(product.name || '').trim()) throw new Error('Product name is required.');
     // SKUs are always assigned by the server as a running number: H0001, H0002, …
     product = { ...product, sku: this.nextSku() };
+    this.cleanProductDetails(product as Partial<Product>, true);
     if (!(Number(product.wholesale_unit_cost) >= 0) || !(Number(product.actual_listed_price) >= 0)) {
       throw new Error('Costs and prices must be zero or more.');
     }
@@ -1630,6 +1728,7 @@ class DatabaseEngine {
     }
     // SKUs are permanent once assigned
     delete updates.sku;
+    this.cleanProductDetails(updates, false);
     if (updates.shop_discount_percentage !== undefined) {
       const d = Number(updates.shop_discount_percentage);
       if (!Number.isFinite(d) || d < 0 || d >= 100) throw new Error('The shop discount must be from 0 to 99.99%.');

@@ -7,6 +7,7 @@ import {
   Megaphone,
   Settings,
   ShoppingBag,
+  Store,
   Truck,
   Users,
   UsersRound,
@@ -50,6 +51,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Business',
     items: [
+      { to: '/shops', label: 'Shops', icon: Store, allowed: can.manageCatalog },
       { to: '/social', label: 'Social posts', icon: Megaphone, allowed: can.planPosts },
       { to: '/pricing', label: 'Pricing', icon: Calculator, allowed: can.viewPricing },
       { to: '/reports', label: 'Reports', icon: BarChart3, allowed: can.viewReports },

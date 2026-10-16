@@ -1,6 +1,7 @@
 import {
   StaffProfile,
   Category,
+  Shop,
   Supplier,
   DeliveryService,
   Product,
@@ -212,6 +213,12 @@ export const api = {
   deleteStaff: (id: string) => request<{ success: boolean; message: string }>(`/api/staff/${id}`, { method: 'DELETE' }),
   updateStaffProfile: (id: string, data: { full_name?: string; email?: string; phone?: string }) =>
     request<StaffProfile>(`/api/staff/${id}`, put(data)),
+
+  // Shops (storefronts)
+  getShops: () => request<Shop[]>('/api/shops'),
+  createShop: (name: string, description?: string) => request<Shop>('/api/shops', post({ name, description })),
+  updateShop: (id: string, data: { name?: string; description?: string }) => request<Shop>(`/api/shops/${id}`, put(data)),
+  deleteShop: (id: string) => request<{ success: boolean }>(`/api/shops/${id}`, { method: 'DELETE' }),
 
   // Categories
   getCategories: () => request<Category[]>('/api/categories'),

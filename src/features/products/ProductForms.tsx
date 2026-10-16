@@ -3,7 +3,7 @@ import { Boxes, PackagePlus, SlidersHorizontal } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../app/auth';
 import { can } from '../../app/permissions';
-import { STOCK_KEYS, keys, useAction, useCategories, useProducts, useSuppliers } from '../../app/queries';
+import { STOCK_KEYS, keys, useAction, useCategories, useProducts, useShops, useSuppliers } from '../../app/queries';
 import { api } from '../../lib/api';
 import { calculateSuggestedPrice, formatMVR } from '../../lib/formatters';
 import type { PricingRule, Product, ProductImage } from '../../types';
@@ -12,17 +12,22 @@ import { ImageUploader } from './ImageUploader';
 
 const DEFAULT_MARKUP = 7.14;
 
-export function ProductFormModal({ product, open, onClose }: { product?: Product; open: boolean; onClose: (saved?: Product) => void }) {
+export function ProductFormModal({ product, open, onClose, defaultShopId }: { product?: Product; open: boolean; onClose: (saved?: Product) => void; defaultShopId?: string }) {
   const { role } = useAuth();
   const isOwner = can.seeCosts(role);
   const categories = useCategories();
   const suppliers = useSuppliers();
+  const shops = useShops();
   const queryClient = useQueryClient();
   const toast = useToast();
 
   const [form, setForm] = useState({
     name: product?.name || '',
     sku: product?.sku || '',
+    shop_id: product?.shop_id || defaultShopId || '',
+    brand: product?.brand || '',
+    model: product?.model || '',
+    size: product?.size || '',
     category_id: product?.category_id || '',
     supplier_id: product?.supplier_id || '',
     description: product?.description || '',
@@ -34,6 +39,7 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
     openingStock: '0',
     active: product?.is_active ?? true,
   });
+  const shopList = shops.data || [];
   const [images, setImages] = useState<ProductImage[]>(product?.images || []);
   const [newCategory, setNewCategory] = useState('');
   const [busy, setBusy] = useState(false);
@@ -67,6 +73,10 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
       const price = form.price === '' ? suggested : Number(form.price);
       const body: Partial<Product> & { openingStock?: number } = {
         name: form.name.trim(),
+        shop_id: form.shop_id || shopList[0]?.id,
+        brand: form.brand.trim(),
+        model: form.model.trim(),
+        size: form.size.trim(),
         category_id: categoryId,
         supplier_id: form.supplier_id,
         description: form.description.trim(),
@@ -115,6 +125,13 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
       <form id="product-form" onSubmit={submit} className="flex flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Input label="Product name" required value={form.name} onChange={set('name')} containerClassName="sm:col-span-2" />
+          <Select label="Shop" required value={form.shop_id || shopList[0]?.id || ''} onChange={set('shop_id')}>
+            {shopList.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
           <Input
             label="SKU"
             value={product ? product.sku : nextSku}
@@ -122,6 +139,9 @@ export function ProductFormModal({ product, open, onClose }: { product?: Product
             disabled
             hint={product ? 'SKUs never change.' : 'Assigned automatically when you save.'}
           />
+          <Input label="Brand" placeholder="e.g. Nivea" value={form.brand} onChange={set('brand')} maxLength={80} />
+          <Input label="Model" placeholder="e.g. Classic 40mm" value={form.model} onChange={set('model')} maxLength={80} />
+          <Input label="Size" placeholder="e.g. 50 ml, M, 42" value={form.size} onChange={set('size')} maxLength={80} />
           <Select label="Category" value={form.category_id} onChange={set('category_id')}>
             <option value="">Uncategorised</option>
             {(categories.data || []).map(c => (

@@ -130,6 +130,10 @@ export function ProductDetailPage() {
             <Card>
               <CardHeader title="Details" />
               <dl className="divide-y divide-line px-5 py-1">
+                <DetailRow label="Shop">{product.shop_name || '—'}</DetailRow>
+                {product.brand && <DetailRow label="Brand">{product.brand}</DetailRow>}
+                {product.model && <DetailRow label="Model">{product.model}</DetailRow>}
+                {product.size && <DetailRow label="Size">{product.size}</DetailRow>}
                 <DetailRow label="Category">{product.category_name || '—'}</DetailRow>
                 <DetailRow label="Supplier">{product.supplier_name || '—'}</DetailRow>
                 {showCost && (
