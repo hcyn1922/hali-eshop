@@ -58,6 +58,19 @@ export interface ForgotPasswordResponse {
 }
 
 /** One of the owner's storefronts (e.g. Hali eshop, Time Nest). */
+/** One email the app tried to send (kept for the owner's email log). */
+export interface EmailLogEntry {
+  at: string;
+  kind: 'new_order' | 'delivered' | 'access_request' | 'test';
+  subject: string;
+  to: string[];
+  from: string;
+  ok: boolean;
+  error?: string;
+  /** Who did the action that triggered it, e.g. the sales person who created the order. */
+  by?: string;
+}
+
 export interface ShopBankAccount {
   /** Usually BML or MIB. */
   bank: string;

@@ -2,6 +2,7 @@ import {
   StaffProfile,
   Category,
   Shop,
+  EmailLogEntry,
   Supplier,
   DeliveryService,
   Product,
@@ -296,6 +297,16 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, 'Could not open the slip.');
     return res.blob();
   },
+  getNotifications: () =>
+    request<{
+      configured: boolean;
+      from: string;
+      testSender: boolean;
+      ownerTo: string;
+      staffTo: Array<{ email: string; name: string; role: string }>;
+      staffWaiting: Array<{ email: string; name: string; role: string }>;
+      log: EmailLogEntry[];
+    }>('/api/notifications'),
   sendTestEmail: () => request<{ success: boolean; message: string }>('/api/notifications/test', post()),
 
   // Deliveries

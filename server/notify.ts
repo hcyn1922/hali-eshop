@@ -1,5 +1,5 @@
 import type express from 'express';
-import type { Order, StaffProfile } from '../src/types/index.ts';
+import type { EmailLogEntry, Order, StaffProfile } from '../src/types/index.ts';
 import { db } from './db.ts';
 
 /**
@@ -14,7 +14,19 @@ const RESEND_URL = process.env.RESEND_API_URL || 'https://api.resend.com/emails'
  * own address, so staff copies need MAIL_FROM on a domain verified in Resend.
  */
 export function staffEmailReady(): boolean {
-  return emailConfigured() && Boolean((process.env.MAIL_FROM || '').trim());
+  return emailConfigured() && !usingTestSender();
+}
+
+const TEST_SENDER = 'Hali e-shop <onboarding@resend.dev>';
+
+/** The From address on every email. */
+export function mailFrom(): string {
+  return (process.env.MAIL_FROM || '').trim() || TEST_SENDER;
+}
+
+/** Resend's shared test sender only delivers to the email the Resend account was opened with. */
+export function usingTestSender(): boolean {
+  return /@resend\.dev>?\s*$/i.test(mailFrom());
 }
 
 export function emailConfigured(): boolean {
@@ -67,10 +79,23 @@ interface Mail {
 }
 
 /** Sends one email, or several in a single Resend batch call (one email per person, so nobody sees the others' addresses). */
+function explainResendError(status: number, detail: string): string {
+  let message = detail;
+  try {
+    message = JSON.parse(detail)?.message || detail;
+  } catch {}
+  message = String(message).slice(0, 240);
+  if (status === 401 || /api key/i.test(message)) return `Resend rejected the API key (${status}). Check RESEND_API_KEY in Vercel. ${message}`;
+  if (/only send testing emails|own email address/i.test(message))
+    return `Resend's test sender can only email the address your Resend account was opened with. Verify a domain in Resend and set MAIL_FROM, or open the Resend account with this email. (${message})`;
+  if (/domain is not verified|not verified/i.test(message)) return `The MAIL_FROM domain is not verified in Resend yet. (${message})`;
+  return `Resend answered ${status}: ${message}`;
+}
+
 async function deliverOnce(mails: Mail[]): Promise<{ ok: boolean; error?: string }> {
   if (!emailConfigured()) return { ok: false, error: 'Email is not set up (RESEND_API_KEY is missing).' };
   if (mails.length === 0) return { ok: true };
-  const from = process.env.MAIL_FROM || 'Hali e-shop <onboarding@resend.dev>';
+  const from = mailFrom();
   const payload = mails.map(m => ({ from, to: [m.to], subject: m.subject, html: m.html, text: m.text }));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -84,7 +109,7 @@ async function deliverOnce(mails: Mail[]): Promise<{ ok: boolean; error?: string
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       console.error('[notify] Resend error', res.status, detail);
-      return { ok: false, error: `Email service answered ${res.status}: ${detail.slice(0, 200)}` };
+      return { ok: false, error: explainResendError(res.status, detail) };
     }
     return { ok: true };
   } catch (err: any) {
@@ -96,17 +121,22 @@ async function deliverOnce(mails: Mail[]): Promise<{ ok: boolean; error?: string
 }
 
 /** If a batch is refused (e.g. one bad address), the owner's copy (always first) is still sent on its own. */
-async function deliver(mails: Mail[]): Promise<{ ok: boolean; error?: string }> {
-  const result = await deliverOnce(mails);
+async function deliver(mails: Mail[], kind: EmailLogEntry['kind'], by?: string): Promise<{ ok: boolean; error?: string }> {
+  let result = await deliverOnce(mails);
+  let sentTo = mails.map(m => m.to);
   if (!result.ok && mails.length > 1) {
     const owner = await deliverOnce([mails[0]]);
-    return owner.ok ? { ok: true, error: `Staff copies were not sent: ${result.error}` } : owner;
+    sentTo = [mails[0].to];
+    result = owner.ok ? { ok: true, error: `Only the owner's copy was sent. Staff copies failed: ${result.error}` } : owner;
+  }
+  if (mails.length) {
+    await db.logEmail({ at: new Date().toISOString(), kind, subject: mails[0].subject, to: sentTo, from: mailFrom(), ok: result.ok, error: result.error, by });
   }
   return result;
 }
 
-function send(subject: string, html: string, text: string) {
-  return deliver([{ to: recipient(), subject, html, text }]);
+function send(subject: string, html: string, text: string, kind: EmailLogEntry['kind'], by?: string) {
+  return deliver([{ to: recipient(), subject, html, text }], kind, by);
 }
 
 const ROLE_NAMES: Record<string, string> = { sales: 'Sales', inventory: 'Inventory lead', marketing: 'Marketing' };
@@ -150,10 +180,10 @@ export async function notifyNewOrder(order: Order, createdBy: string, baseUrl: s
   const text = `New order ${order.order_number} from ${order.buyer_name} (${mvr(order.total_amount)}), taken by ${createdBy}.\n${order.items
     .map(i => `${i.quantity} x ${i.product_name}`)
     .join('\n')}`;
-  return deliver(orderMails(subject, 'New order placed', [...orderRows(order), ['Taken by', esc(createdBy)]], itemsHtml(order), link, text));
+  return deliver(orderMails(subject, 'New order placed', [...orderRows(order), ['Taken by', esc(createdBy)]], itemsHtml(order), link, text), 'new_order', createdBy);
 }
 
-export async function notifyDelivered(order: Order, baseUrl: string) {
+export async function notifyDelivered(order: Order, baseUrl: string, by?: string) {
   const subject = `Delivered: ${order.order_number} to ${order.buyer_name}`;
   return deliver(
     orderMails(
@@ -163,7 +193,9 @@ export async function notifyDelivered(order: Order, baseUrl: string) {
       itemsHtml(order),
       { href: `${baseUrl}/orders/${order.id}`, label: 'Open order' },
       `${order.order_number} was delivered to ${order.buyer_name}. Total ${mvr(order.total_amount)}.`
-    )
+    ),
+    'delivered',
+    by
   );
 }
 
@@ -182,7 +214,7 @@ export async function notifyAccessRequest(staff: StaffProfile, baseUrl: string) 
     pending ? '<p style="font-size:14px;color:#475467">Approve or decline it on the Requests tab of Staff &amp; access.</p>' : '',
     { href: `${baseUrl}/staff`, label: pending ? 'Review request' : 'Open Staff & access' }
   );
-  return send(subject, html, `${subject} (${staff.email}). ${pending ? 'Review it in Staff & access.' : ''}`);
+  return send(subject, html, `${subject} (${staff.email}). ${pending ? 'Review it in Staff & access.' : ''}`, 'access_request', staff.full_name);
 }
 
 export async function sendTestEmail(baseUrl: string) {
@@ -192,7 +224,8 @@ export async function sendTestEmail(baseUrl: string) {
       href: baseUrl,
       label: 'Open Hali e-shop',
     }),
-    `Email notifications are working. Sent to ${recipient()}.`
+    `Email notifications are working. Sent to ${recipient()}.`,
+    'test'
   );
 }
 

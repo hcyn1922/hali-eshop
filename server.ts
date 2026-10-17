@@ -7,7 +7,7 @@ import { StoreConflictError } from './server/store.ts';
 import { allow, extractToken, getAuth, HttpError, need, requireAuth, resolveAuth } from './server/auth.ts';
 import { aiPhotoConfig, generatePhotos, inspectProduct, parseApproved, parseStudioRequest, parseViews } from './server/aiPhotos.ts';
 import { LOCAL_UPLOAD_DIR, readPaymentSlip, savePaymentSlip, saveProductImage } from './server/uploads.ts';
-import { appUrl, emailConfigured, staffEmailReady, notificationRecipient, notifyAccessRequest, notifyDelivered, notifyNewOrder, sendTestEmail } from './server/notify.ts';
+import { appUrl, emailConfigured, mailFrom, staffEmailReady, usingTestSender, notificationRecipient, notifyAccessRequest, notifyDelivered, notifyNewOrder, sendTestEmail } from './server/notify.ts';
 import type { StaffRole } from './src/types/index.ts';
 
 dotenv.config();
@@ -252,6 +252,19 @@ app.get('/api/status', route((req, res) => {
       return { enabled: c.enabled, model: c.imageModel, dailyLimit: c.dailyLimit, usedToday: db.aiPhotosUsedToday(getAuth(req).staffId) };
     })(),
     notifyEmail: getAuth(req).role === 'owner' ? notificationRecipient() : undefined,
+  });
+}));
+
+// Owner: where emails come from and go to, and what happened to the latest ones
+app.get('/api/notifications', allow(...OWNER), route((_req, res) => {
+  res.json({
+    configured: emailConfigured(),
+    from: mailFrom(),
+    testSender: usingTestSender(),
+    ownerTo: notificationRecipient(),
+    staffTo: staffEmailReady() ? db.getOrderEmailStaff().map(s => ({ email: s.email, name: s.full_name, role: s.role })) : [],
+    staffWaiting: staffEmailReady() ? [] : db.getOrderEmailStaff().map(s => ({ email: s.email, name: s.full_name, role: s.role })),
+    log: db.getEmailLog(),
   });
 }));
 
@@ -524,7 +537,7 @@ app.post('/api/orders/:id/status', need('orders.process'), route(async (req, res
   const { role, staffId } = getAuth(req);
   const { stage, deliveryInfo } = req.body || {};
   const updated = await db.updateOrderStatus(req.params.id, stage, staffId, deliveryInfo);
-  if (updated.stage === 'delivered') await notifyDelivered(visibleOrder(updated.id, 'owner')!, appUrl(req));
+  if (updated.stage === 'delivered') await notifyDelivered(visibleOrder(updated.id, 'owner')!, appUrl(req), getAuth(req).staff.full_name);
   res.json(visibleOrder(updated.id, role));
 }));
 

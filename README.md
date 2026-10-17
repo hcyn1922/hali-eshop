@@ -114,7 +114,8 @@ The code lives in the private repository **hcyn1922/hali-eshop**. Vercel deploys
 3. In Vercel → **Settings → Environment Variables** add `RESEND_API_KEY` with that key, then **Redeploy**.
 4. In the app, open **Settings → Setup** and click **Send a test email**.
 5. Later, to send from your own address (e.g. `orders@hali.mv`) or to another inbox, verify your domain in Resend → **Domains**, then set `MAIL_FROM` (and `NOTIFY_EMAIL` if it should go elsewhere).
-6. **Staff order emails:** switch on **Order emails** for a role in **Roles & permissions** and everyone in that role also gets the new-order and delivered emails at their sign-in address (one email each, so nobody sees the others' addresses). This needs step 5 (a verified domain and `MAIL_FROM`); until then only the owner is emailed. If Resend refuses the staff copies, the owner's email is still sent.
+6. **Checking emails:** **Settings → Setup → Email** shows the address emails are sent from and to, a **Send a test email** button, and the last 30 emails with *Sent* / *Failed* and Resend's reason for any failure (for example the test sender refusing an address).
+7. **Staff order emails:** switch on **Order emails** for a role in **Roles & permissions** and everyone in that role also gets the new-order and delivered emails at their sign-in address (one email each, so nobody sees the others' addresses). This needs step 5 (a verified domain and `MAIL_FROM`); until then only the owner is emailed. If Resend refuses the staff copies, the owner's email is still sent.
 
 ### 5. Turn on AI studio photos (optional)
 

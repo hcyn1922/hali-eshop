@@ -15,6 +15,7 @@ import type {
   Category,
   Shop,
   ShopBankAccount,
+  EmailLogEntry,
   Supplier,
   DeliveryService,
   Product,
@@ -186,6 +187,8 @@ interface DatabaseSchema {
   pricing_margins?: number[];
   /** The usual delivery charge per order, used by the price calculator. */
   pricing_delivery_rate?: number;
+  /** The last emails the app tried to send, newest first. */
+  email_log?: EmailLogEntry[];
 }
 
 /** One AI studio photo run, kept for the daily limit and to see who used it. */
@@ -2420,6 +2423,20 @@ class DatabaseEngine {
 
   public getOwnerEmail(): string {
     return PRIMARY_OWNER_EMAIL;
+  }
+
+  public getEmailLog(): EmailLogEntry[] {
+    return [...(this.data.email_log || [])];
+  }
+
+  /** Records an email attempt; never throws, so logging can't break the shop action. */
+  public async logEmail(entry: EmailLogEntry): Promise<void> {
+    try {
+      this.data.email_log = [entry, ...(this.data.email_log || [])].slice(0, 30);
+      await this.persist();
+    } catch (err: any) {
+      console.error('[notify] Could not record the email log:', err?.message || err);
+    }
   }
 
   /** Active staff (not owners) whose role has "Order emails" switched on. */
